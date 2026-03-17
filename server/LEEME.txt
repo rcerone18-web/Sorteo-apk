@@ -1,0 +1,19 @@
+Si "npm start" falla con error de PHP (Laragon), usa una de estas opciones:
+
+1) Ejecutar Node directamente (recomendado):
+   node index.js
+
+2) O doble clic en: start.bat
+
+3) Este proyecto tiene .npmrc con script-shell=cmd.exe para evitar PHP.
+4) Estructura según BASE_DE_DATOS_TABLAS.md: users, ventas, facturas_mock, participaciones, sorteos, bonos, config_sorteo. Usuarios: asesor/asesor123, admin/admin123.
+
+---
+
+Si aparece "EADDRINUSE: address already in use 0.0.0.0:3000":
+  El puerto 3000 está ocupado (otra instancia del servidor u otra app).
+  En PowerShell (como administrador si hace falta):
+    netstat -ano | findstr :3000
+  Verás un PID (número al final). Luego:
+    taskkill /PID <número> /F
+  O usar otro puerto:  set PORT=3001  y luego  node index.js
