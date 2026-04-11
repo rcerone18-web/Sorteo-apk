@@ -2,11 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
   Alert,
   RefreshControl,
 } from 'react-native';
@@ -14,6 +11,10 @@ import { useAuth } from '../../context/AuthContext';
 import * as api from '../../api/client';
 import { toCsvRow, shareCsv } from '../../utils/csvExport';
 import type { SorteoItem, ParticipacionItem } from '../../types';
+import { useAppTheme } from '../../theme/ThemeProvider';
+import { Card } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
 
 function formatDate(s: string) {
   if (!s) return '';
@@ -32,6 +33,7 @@ type GanadorRow = {
 
 export default function AdminGanadoresScreen() {
   const { user } = useAuth();
+  const { theme } = useAppTheme();
   const [list, setList] = useState<GanadorRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,67 +102,71 @@ export default function AdminGanadoresScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.filters}>
-        <TextInput style={styles.input} value={desde} onChangeText={setDesde} placeholder="Desde (YYYY-MM-DD)" />
-        <TextInput style={styles.input} value={hasta} onChangeText={setHasta} placeholder="Hasta (YYYY-MM-DD)" />
-        <View style={styles.row}>
-          <TouchableOpacity style={styles.btn} onPress={load} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>Filtrar</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, styles.btnSecondary]} onPress={exportarCsv} disabled={list.length === 0}>
-            <Text style={styles.btnText}>Exportar CSV</Text>
-          </TouchableOpacity>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Card style={styles.filters}>
+        <Text style={[styles.filtersTitle, { color: theme.colors.text }]}>Filtros</Text>
+        <View style={styles.filterRow}>
+          <Input placeholder="Desde (YYYY-MM-DD)" value={desde} onChangeText={setDesde} />
+          <Input placeholder="Hasta (YYYY-MM-DD)" value={hasta} onChangeText={setHasta} />
         </View>
-      </View>
+
+        <View style={styles.row}>
+          <View style={{ flex: 1, marginRight: 8 }}>
+            <Button title="Filtrar" onPress={load} disabled={loading} loading={loading} variant="primary" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <Button
+              title="Exportar CSV"
+              onPress={exportarCsv}
+              disabled={list.length === 0}
+              variant="secondary"
+            />
+          </View>
+        </View>
+      </Card>
       <FlatList
         data={list}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={!loading ? <Text style={styles.empty}>Sin ganadores</Text> : null}
         renderItem={({ item }) => (
-          <View style={styles.rowCard}>
-            <Text style={styles.cell} numberOfLines={1}>{item.nombreCliente}</Text>
-            <Text style={styles.cellSmall}>{item.cedula}</Text>
-            <Text style={styles.cell}>{item.facturaNumero}</Text>
-            <Text style={styles.cell}>${Number(item.valorFactura).toLocaleString('es-CO')}</Text>
-            <Text style={styles.cell}>${Number(item.valorBono).toLocaleString('es-CO')}</Text>
-            <Text style={styles.cellSmall}>{formatDate(item.fechaSorteo)}</Text>
-          </View>
+          <Card style={styles.rowCard}>
+            <Text style={[styles.itemTitle, { color: theme.colors.text }]} numberOfLines={1}>
+              {item.nombreCliente}
+            </Text>
+            <View style={styles.itemMeta}>
+              <Text style={[styles.itemMetaText, { color: theme.colors.mutedText }]}>Cédula: {item.cedula}</Text>
+              <Text style={[styles.itemMetaText, { color: theme.colors.mutedText }]}>Factura: {item.facturaNumero}</Text>
+            </View>
+            <View style={styles.itemMeta}>
+              <Text style={[styles.itemMetaText, { color: theme.colors.text, fontWeight: '900' }]}>
+                Valor fact.: ${Number(item.valorFactura).toLocaleString('es-CO')}
+              </Text>
+              <Text style={[styles.itemMetaText, { color: theme.colors.accent, fontWeight: '900' }]}>
+                Bono 50%: ${Number(item.valorBono).toLocaleString('es-CO')}
+              </Text>
+            </View>
+            <Text style={[styles.itemFooter, { color: theme.colors.mutedText }]}>Fecha: {formatDate(item.fechaSorteo)}</Text>
+          </Card>
         )}
         style={styles.list}
-        ListHeaderComponent={
-          list.length > 0 ? (
-            <View style={styles.headerRow}>
-              <Text style={styles.headerCell}>Cliente</Text>
-              <Text style={styles.headerCellSmall}>Cédula</Text>
-              <Text style={styles.headerCell}>Factura</Text>
-              <Text style={styles.headerCell}>Valor fact.</Text>
-              <Text style={styles.headerCell}>Bono 50%</Text>
-              <Text style={styles.headerCellSmall}>Fecha</Text>
-            </View>
-          ) : null
-        }
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
-  filters: { padding: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#e2e8f0' },
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 8, fontSize: 14, marginBottom: 8 },
+  container: { flex: 1 },
+  filters: { margin: 16, padding: 14 },
+  filtersTitle: { fontSize: 18, fontWeight: '900', marginBottom: 10 },
+  filterRow: { flexDirection: 'row' },
   row: { flexDirection: 'row' },
-  btn: { flex: 1, backgroundColor: '#1e3a5f', paddingVertical: 10, borderRadius: 8, alignItems: 'center', marginRight: 8 },
-  btnSecondary: { backgroundColor: '#475569', marginRight: 0 },
-  btnText: { color: '#fff', fontWeight: '600' },
-  list: { flex: 1 },
-  headerRow: { flexDirection: 'row', padding: 10, backgroundColor: '#1e3a5f' },
-  headerCell: { flex: 1, color: '#fff', fontWeight: '600', fontSize: 12 },
-  headerCellSmall: { width: 72, color: '#fff', fontWeight: '600', fontSize: 11 },
-  rowCard: { flexDirection: 'row', padding: 10, borderBottomWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' },
-  cell: { flex: 1, fontSize: 12 },
-  cellSmall: { width: 72, fontSize: 11 },
-  empty: { padding: 24, textAlign: 'center', color: '#64748b' },
+  list: { flex: 1, paddingHorizontal: 16, paddingTop: 6 },
+  rowCard: { padding: 16, marginBottom: 12 },
+  itemTitle: { fontSize: 16, fontWeight: '900', marginBottom: 8 },
+  itemMeta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, gap: 12 } as any,
+  itemMetaText: { flex: 1, fontSize: 13 },
+  itemFooter: { fontSize: 12, fontWeight: '800', marginTop: 6 },
+  empty: { padding: 24, textAlign: 'center' },
   noAccess: { fontSize: 16, color: '#64748b', textAlign: 'center', marginTop: 40 },
 });

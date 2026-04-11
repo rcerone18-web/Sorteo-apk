@@ -2,11 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   RefreshControl,
   ScrollView,
@@ -15,6 +13,10 @@ import { useAuth } from '../../context/AuthContext';
 import * as api from '../../api/client';
 import { toCsvRow, shareCsv } from '../../utils/csvExport';
 import type { BonoItem } from '../../types';
+import { useAppTheme } from '../../theme/ThemeProvider';
+import { Card } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
 
 function formatDate(s: string) {
   if (!s) return '';
@@ -23,6 +25,7 @@ function formatDate(s: string) {
 
 export default function AdminBonosScreen() {
   const { user } = useAuth();
+  const { theme } = useAppTheme();
   const [list, setList] = useState<BonoItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -90,101 +93,116 @@ export default function AdminBonosScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <ScrollView style={styles.filters} contentContainerStyle={styles.filtersContent} keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>Desde / Hasta</Text>
-        <View style={styles.row}>
-          <TextInput style={[styles.input, styles.flex1]} value={desde} onChangeText={setDesde} placeholder="Desde" />
-          <TextInput style={[styles.input, styles.flex1]} value={hasta} onChangeText={setHasta} placeholder="Hasta" />
-        </View>
-        <Text style={styles.label}>Cliente / Factura</Text>
-        <TextInput style={styles.input} value={cliente} onChangeText={setCliente} placeholder="Cliente o cédula" />
-        <TextInput style={styles.input} value={factura} onChangeText={setFactura} placeholder="Nº factura" />
-        <Text style={styles.label}>Estado</Text>
-        <View style={styles.row}>
-          {['', 'disponible', 'redimido', 'vencido'].map((e) => (
-            <TouchableOpacity
-              key={e || 'todos'}
-              style={[styles.chip, estado === e ? styles.chipActive : null]}
-              onPress={() => setEstado(e)}
-            >
-              <Text style={[styles.chipText, estado === e ? styles.chipTextActive : null]}>{e || 'Todos'}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={styles.row}>
-          <TouchableOpacity style={styles.btn} onPress={load} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>Filtrar</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, styles.btnSecondary]} onPress={exportarCsv} disabled={list.length === 0}>
-            <Text style={styles.btnText}>Exportar CSV</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Card style={styles.filters}>
+        <ScrollView contentContainerStyle={styles.filtersContent} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.label, { color: theme.colors.mutedText }]}>Desde / Hasta</Text>
+          <View style={styles.row}>
+            <View style={styles.flex1}>
+              <Input placeholder="Desde" value={desde} onChangeText={setDesde} />
+            </View>
+            <View style={styles.flex1}>
+              <Input placeholder="Hasta" value={hasta} onChangeText={setHasta} />
+            </View>
+          </View>
+
+          <Text style={[styles.label, { color: theme.colors.mutedText }]}>Cliente / Factura</Text>
+          <Input placeholder="Cliente o cédula" value={cliente} onChangeText={setCliente} />
+          <View style={{ height: 10 }} />
+          <Input placeholder="Nº factura" value={factura} onChangeText={setFactura} />
+
+          <Text style={[styles.label, { color: theme.colors.mutedText, marginTop: 10 }]}>Estado</Text>
+          <View style={styles.row}>
+            {['', 'disponible', 'redimido', 'vencido'].map((e) => (
+              <TouchableOpacity
+                key={e || 'todos'}
+                style={[
+                  styles.chip,
+                  { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
+                  estado === e && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+                ]}
+                onPress={() => setEstado(e)}
+              >
+                <Text style={[styles.chipText, estado === e && { color: '#fff' }]}>{e || 'Todos'}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.row}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Button title="Filtrar" onPress={load} disabled={loading} loading={loading} variant="primary" />
+            </View>
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Button
+                title="Exportar CSV"
+                onPress={exportarCsv}
+                disabled={list.length === 0}
+                variant="secondary"
+              />
+            </View>
+          </View>
+        </ScrollView>
+      </Card>
       <FlatList
         data={list}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={!loading ? <Text style={styles.empty}>Sin resultados</Text> : null}
         renderItem={({ item }) => (
-          <View style={styles.rowCard}>
-            <Text style={styles.cellCode}>{item.codigo}</Text>
-            <Text style={styles.cell}>{item.facturaOrigen}</Text>
-            <Text style={styles.cell} numberOfLines={1}>{item.nombreCliente}</Text>
-            <Text style={styles.cell}>${Number(item.valor).toLocaleString('es-CO')}</Text>
-            <Text style={styles.cellSmall}>{formatDate(item.fechaEmision)}</Text>
-            <Text style={styles.cellSmall}>{formatDate(item.fechaVencimiento)}</Text>
-            <Text style={[styles.cellEstado, item.estadoMostrar === 'vencido' || item.estado === 'vencido' ? styles.vencido : item.estado === 'redimido' ? styles.redimido : styles.disponible]}>
-              {item.estadoMostrar || item.estado}
+          <Card style={styles.rowCard}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={[styles.codigo, { color: theme.colors.text }]} numberOfLines={1}>
+                {item.codigo}
+              </Text>
+              <View style={styles.estadoBadge}>
+                <Text style={[styles.estadoBadgeText, item.estadoMostrar === 'vencido' || item.estado === 'vencido' ? { color: '#dc2626' } : item.estado === 'redimido' ? { color: '#64748b' } : { color: '#16a34a' }]}>
+                  {item.estadoMostrar || item.estado}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.cliente, { color: theme.colors.mutedText }]} numberOfLines={1}>
+              {item.nombreCliente}
             </Text>
-          </View>
+            <View style={styles.metaRow}>
+              <Text style={[styles.metaText, { color: theme.colors.text, fontWeight: '900' }]}>
+                ${Number(item.valor).toLocaleString('es-CO')}
+              </Text>
+              <Text style={[styles.metaText, { color: theme.colors.mutedText }]}>{item.facturaOrigen}</Text>
+            </View>
+            <Text style={[styles.metaText, { color: theme.colors.mutedText }]}>
+              Emisión: {formatDate(item.fechaEmision)} • Venc.: {formatDate(item.fechaVencimiento)}
+            </Text>
+          </Card>
         )}
         style={styles.list}
-        ListHeaderComponent={
-          list.length > 0 ? (
-            <View style={styles.headerRow}>
-              <Text style={styles.headerCell}>Código</Text>
-              <Text style={styles.headerCell}>Factura</Text>
-              <Text style={styles.headerCell}>Cliente</Text>
-              <Text style={styles.headerCell}>Valor</Text>
-              <Text style={styles.headerCellSmall}>Emisión</Text>
-              <Text style={styles.headerCellSmall}>Venc.</Text>
-              <Text style={styles.headerCellSmall}>Estado</Text>
-            </View>
-          ) : null
-        }
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
-  filters: { maxHeight: 320, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#e2e8f0' },
-  filtersContent: { padding: 12 },
-  label: { fontSize: 12, color: '#64748b', marginTop: 6 },
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 8, fontSize: 14 },
-  flex1: { flex: 1 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#e2e8f0', marginRight: 8, marginBottom: 4 },
-  chipActive: { backgroundColor: '#1e3a5f' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextActive: { color: '#fff' },
-  btn: { flex: 1, backgroundColor: '#1e3a5f', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, marginTop: 8, alignItems: 'center' },
-  btnSecondary: { backgroundColor: '#475569', marginLeft: 8 },
-  btnText: { color: '#fff', fontWeight: '600' },
-  list: { flex: 1 },
-  headerRow: { flexDirection: 'row', padding: 10, backgroundColor: '#1e3a5f' },
-  headerCell: { flex: 1, color: '#fff', fontWeight: '600', fontSize: 11 },
-  headerCellSmall: { width: 70, color: '#fff', fontWeight: '600', fontSize: 10 },
-  rowCard: { flexDirection: 'row', padding: 8, borderBottomWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' },
-  cellCode: { flex: 1, fontSize: 11 },
-  cell: { flex: 1, fontSize: 11 },
-  cellSmall: { width: 70, fontSize: 10, color: '#64748b' },
-  cellEstado: { width: 72, fontSize: 10, fontWeight: '600' },
-  disponible: { color: '#16a34a' },
-  redimido: { color: '#64748b' },
-  vencido: { color: '#dc2626' },
+  container: { flex: 1 },
+  filters: { margin: 16, padding: 14 },
+  filtersContent: { padding: 0 },
+  label: { fontSize: 12, marginTop: 6, fontWeight: '800' },
+  flex1: { flex: 1, marginRight: 8 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, gap: 8 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 4,
+  },
+  chipText: { fontSize: 13, fontWeight: '800' },
+  list: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
+  rowCard: { padding: 16, marginBottom: 12 },
+  codigo: { flex: 1, fontSize: 12, fontWeight: '900' },
+  estadoBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.03)' },
+  estadoBadgeText: { fontSize: 12, fontWeight: '900' },
+  cliente: { fontSize: 14, fontWeight: '700' },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, marginBottom: 4 },
+  metaText: { fontSize: 13, flex: 1 },
   empty: { padding: 24, textAlign: 'center', color: '#64748b' },
   noAccess: { fontSize: 16, color: '#64748b', textAlign: 'center', marginTop: 40 },
 });

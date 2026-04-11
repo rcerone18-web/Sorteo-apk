@@ -12,9 +12,13 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import * as api from '../../api/client';
 import type { BonoItem } from '../../types';
+import { useAppTheme } from '../../theme/ThemeProvider';
+import { Card } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
 
 export default function AdminRedencionScreen() {
   const { user } = useAuth();
+  const { theme } = useAppTheme();
   const [bonos, setBonos] = useState<BonoItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -80,8 +84,12 @@ export default function AdminRedencionScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.hint}>Solo bonos con estado "disponible". Al redimir, el bono pasará a "redimido".</Text>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Card style={styles.hintCard}>
+        <Text style={[styles.hintText, { color: theme.colors.mutedText }]}>
+          Solo bonos con estado "disponible". Al redimir, el bono pasará a "redimido".
+        </Text>
+      </Card>
       <FlatList
         data={bonos}
         keyExtractor={(item) => item.id}
@@ -92,11 +100,13 @@ export default function AdminRedencionScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.cardBody}>
-              <Text style={styles.codigo}>{item.codigo}</Text>
-              <Text style={styles.cliente}>{item.nombreCliente}</Text>
-              <Text style={styles.detalle}>Factura: {item.facturaOrigen} — ${Number(item.valor).toLocaleString('es-CO')}</Text>
+          <Card style={styles.itemCard}>
+            <View>
+              <Text style={[styles.codigo, { color: theme.colors.text }]}>{item.codigo}</Text>
+              <Text style={[styles.cliente, { color: theme.colors.mutedText }]}>{item.nombreCliente}</Text>
+              <Text style={[styles.detalle, { color: theme.colors.mutedText }]}>
+                Factura: {item.facturaOrigen} — ${Number(item.valor).toLocaleString('es-CO')}
+              </Text>
             </View>
             <TouchableOpacity
               style={[styles.btnRedimir, redimiendoId === item.id && styles.btnDisabled]}
@@ -109,7 +119,7 @@ export default function AdminRedencionScreen() {
                 <Text style={styles.btnText}>Redimir</Text>
               )}
             </TouchableOpacity>
-          </View>
+          </Card>
         )}
         style={styles.list}
       />
@@ -118,23 +128,15 @@ export default function AdminRedencionScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
-  hint: { padding: 12, backgroundColor: '#e0f2fe', color: '#0369a1', fontSize: 13 },
-  list: { flex: 1 },
-  card: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginVertical: 8,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  cardBody: { marginBottom: 12 },
-  codigo: { fontSize: 16, fontWeight: '700', color: '#1e3a5f' },
-  cliente: { fontSize: 14, color: '#334155', marginTop: 4 },
-  detalle: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  btnRedimir: { backgroundColor: '#16a34a', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  container: { flex: 1 },
+  hintCard: { marginHorizontal: 16, marginTop: 16 },
+  hintText: { fontSize: 13, fontWeight: '700' },
+  list: { flex: 1, paddingHorizontal: 0 },
+  itemCard: { marginHorizontal: 16, marginVertical: 8, padding: 16 },
+  codigo: { fontSize: 16, fontWeight: '900' },
+  cliente: { fontSize: 14, marginTop: 4 },
+  detalle: { fontSize: 12, marginTop: 6, lineHeight: 16 },
+  btnRedimir: { backgroundColor: '#16a34a', paddingVertical: 12, borderRadius: 12, marginTop: 12, alignItems: 'center' },
   btnDisabled: { opacity: 0.7 },
   btnText: { color: '#fff', fontWeight: '600' },
   empty: { padding: 24, textAlign: 'center', color: '#64748b' },

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { API_BASE_URL } from '../config';
+import { getApiBaseUrl } from '../config';
 import type {
   Factura,
   Participacion,
@@ -25,7 +25,7 @@ export function setOnAuthError(fn: (() => void) | null) {
 
 function client(): AxiosInstance {
   const c = axios.create({
-    baseURL: `${API_BASE_URL}/api`,
+    baseURL: `${getApiBaseUrl()}/api`,
     timeout: 15000,
     headers: { 'Content-Type': 'application/json' },
   });
@@ -36,7 +36,10 @@ function client(): AxiosInstance {
   c.interceptors.response.use(
     (r) => r,
     (err) => {
-      if (err.response?.status === 401 || err.response?.status === 403) {
+      // Solo cerrar sesión si el problema es autenticación (token inválido/expirado).
+      // El 403 aquí puede venir de reglas de negocio (p.ej. "presentaciones requeridas"),
+      // y no debe forzar logout.
+      if (err.response?.status === 401) {
         onAuthError?.();
       }
       return Promise.reject(err);
@@ -57,6 +60,18 @@ export interface LoginResponse {
 export async function login(body: LoginBody): Promise<LoginResponse> {
   const { data } = await client().post<LoginResponse>('/auth/login', body);
   return data;
+}
+
+/** Prueba si el servidor está alcanzable (para diagnóstico). */
+export async function testConnection(): Promise<{ ok: boolean; mensaje: string }> {
+  try {
+    const base = getApiBaseUrl();
+    await axios.get(base, { timeout: 5000 });
+    return { ok: true, mensaje: 'Servidor alcanzable' };
+  } catch (e) {
+    const msg = axios.isAxiosError(e) ? (e.message || 'Error de red') : 'Error desconocido';
+    return { ok: false, mensaje: msg };
+  }
 }
 
 /** Body según doc: cedula, nombreCliente, valorTotal, fechaFactura, totalHuevos?, presentaciones, codigoBono? */
@@ -83,8 +98,9 @@ export async function crearVenta(body: CrearVentaBody): Promise<CrearVentaRespon
     presentaciones: body.presentaciones,
     codigoBono: body.codigoBono,
   };
-  const { data } = await client().post<CrearVentaResponse>('/ventas', payload);
-  return data;
+  // El backend responde con `{ data: { numero } }`.
+  const { data } = await client().post<{ data: CrearVentaResponse }>('/ventas', payload);
+  return (data as any).data ?? data;
 }
 
 export interface VentaPorNumero {

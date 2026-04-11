@@ -11,6 +11,7 @@ import ParticipacionScreen from '../screens/ParticipacionScreen';
 import ResultadoSorteoScreen from '../screens/ResultadoSorteoScreen';
 import SyncScreen from '../screens/SyncScreen';
 import AdminStack from './AdminStack';
+import { ThemeProvider, useAppTheme } from '../theme/ThemeProvider';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -66,14 +67,15 @@ const styles = StyleSheet.create({
   loadingText: { color: '#fff', marginTop: 12 },
 });
 
-export default function AppNavigator() {
-  const { user, isRestored, isLoading } = useAuth();
+function AppNavigatorInner() {
+  const { theme } = useAppTheme();
+  const { user, isRestored } = useAuth();
 
   if (!isRestored) {
     return (
-      <View style={styles.loading}>
+      <View style={[styles.loading, { backgroundColor: theme.colors.primary }]}>
         <ActivityIndicator size="large" color="#fff" />
-        <Text style={styles.loadingText}>Cargando...</Text>
+        <Text style={[styles.loadingText]}>Cargando...</Text>
       </View>
     );
   }
@@ -82,8 +84,9 @@ export default function AppNavigator() {
     <NavigationContainer>
       <Stack.Navigator
         screenOptions={{
-          headerStyle: { backgroundColor: '#1e3a5f' },
-          headerTintColor: '#fff',
+          headerStyle: { backgroundColor: theme.colors.primary },
+          headerTintColor: theme.colors.text,
+          headerTitleStyle: { fontWeight: '800' },
         }}
       >
         {!user ? (
@@ -91,14 +94,18 @@ export default function AppNavigator() {
         ) : (
           <>
             <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
-            <Stack.Screen
-              name="ResultadoSorteo"
-              component={ResultadoSorteoScreen}
-              options={{ title: 'Resultado del sorteo' }}
-            />
+            <Stack.Screen name="ResultadoSorteo" component={ResultadoSorteoScreen} options={{ title: 'Resultado del sorteo' }} />
           </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+export default function AppNavigator() {
+  return (
+    <ThemeProvider>
+      <AppNavigatorInner />
+    </ThemeProvider>
   );
 }

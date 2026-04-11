@@ -1,30 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
-} from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Alert, ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { isOnline } from '../../sync/syncService';
 import * as api from '../../api/client';
 import type { AdminMetricas } from '../../types';
+import { useAppTheme } from '../../theme/ThemeProvider';
+import { DashboardContainer } from '../../components/admin/DashboardContainer';
+import { Header } from '../../components/admin/Header';
+import { KpiCard } from '../../components/admin/KpiCard';
+import { MenuCard } from '../../components/admin/MenuCard';
+import { ChartSection } from '../../components/admin/ChartSection';
 
 const cardItems = [
-  { key: 'Participaciones', title: 'Facturas registradas', screen: 'AdminParticipaciones' },
-  { key: 'Sorteos', title: 'Sorteos', screen: 'AdminSorteos' },
-  { key: 'Ganadores', title: 'Ganadores', screen: 'AdminGanadores' },
-  { key: 'Bonos', title: 'Bonos', screen: 'AdminBonos' },
-  { key: 'Redencion', title: 'Redención de bono', screen: 'AdminRedencion' },
-  { key: 'Config', title: 'Configuración', screen: 'AdminConfig' },
+  { key: 'Participaciones', title: 'Facturas registradas', screen: 'AdminParticipaciones', icon: 'receipt-outline' as const },
+  { key: 'Sorteos', title: 'Sorteos', screen: 'AdminSorteos', icon: 'game-controller-outline' as const },
+  { key: 'Ganadores', title: 'Ganadores', screen: 'AdminGanadores', icon: 'trophy-outline' as const },
+  { key: 'Bonos', title: 'Bonos', screen: 'AdminBonos', icon: 'gift-outline' as const },
+  { key: 'Redencion', title: 'Redención de bono', screen: 'AdminRedencion', icon: 'card-outline' as const },
+  { key: 'Config', title: 'Configuración', screen: 'AdminConfig', icon: 'settings-outline' as const },
 ];
 
-export default function AdminDashboardScreen() {
+function AdminDashboardContent() {
+  const { theme } = useAppTheme();
   const navigation = useNavigation<{
     navigate: (screen: string) => void;
   }>();
@@ -33,6 +31,7 @@ export default function AdminDashboardScreen() {
   const [metricas, setMetricas] = useState<AdminMetricas | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [hasAnimated, setHasAnimated] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -63,79 +62,147 @@ export default function AdminDashboardScreen() {
 
   if (user?.rol !== 'administrador') {
     return (
-      <View style={styles.container}>
-        <Text style={styles.noAccess}>No tienes acceso al panel de administración.</Text>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <Text style={[styles.noAccess, { color: theme.colors.mutedText }]}>No tienes acceso al panel de administración.</Text>
       </View>
     );
   }
 
+  const headerAnim = useRef(new Animated.Value(0)).current;
+  const chartAnim = useRef(new Animated.Value(0)).current;
+  const kpiAnims = useRef(Array.from({ length: 5 }).map(() => new Animated.Value(0))).current;
+  const menuAnims = useRef(Array.from({ length: 6 }).map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    if (!metricas || hasAnimated) return;
+    headerAnim.setValue(0);
+    chartAnim.setValue(0);
+    kpiAnims.forEach((v) => v.setValue(0));
+    menuAnims.forEach((v) => v.setValue(0));
+
+    const fadeSlideIn = (v: Animated.Value, delayMs: number) =>
+      Animated.timing(v, { toValue: 1, duration: 550, delay: delayMs, useNativeDriver: true });
+
+    Animated.parallel([
+      fadeSlideIn(headerAnim, 0),
+      fadeSlideIn(chartAnim, 220),
+      Animated.stagger(60, kpiAnims.map((v, idx) => fadeSlideIn(v, 120 + idx * 60))),
+      Animated.stagger(55, menuAnims.map((v, idx) => fadeSlideIn(v, 260 + idx * 45))),
+    ]).start(() => setHasAnimated(true));
+  }, [metricas, hasAnimated, headerAnim, chartAnim, kpiAnims, menuAnims]);
+
+  const headerStyle = useMemo(() => {
+    return {
+      opacity: headerAnim,
+      transform: [
+        {
+          translateY: headerAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [10, 0],
+          }),
+        },
+      ],
+    };
+  }, [headerAnim]);
+
+  const chartStyle = useMemo(() => {
+    return {
+      opacity: chartAnim,
+      transform: [
+        {
+          translateY: chartAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [10, 0],
+          }),
+        },
+      ],
+    };
+  }, [chartAnim]);
+
+  const metricasCards = useMemo(() => {
+    if (!metricas) return [];
+    return [
+      { value: String(metricas.totalParticipaciones ?? 0), label: 'Total participaciones', icon: 'receipt-outline' as const },
+      { value: String(metricas.totalGanadores ?? 0), label: 'Total ganadores', icon: 'trophy-outline' as const },
+      { value: `${Number(metricas.tasaObservada ?? 0).toFixed(2)}%`, label: 'Tasa ganadora', icon: 'game-controller-outline' as const },
+      { value: `$${Number(metricas.valorEmitido ?? 0).toLocaleString('es-CO')}`, label: 'Bonos emitidos', icon: 'gift-outline' as const },
+      { value: `$${Number(metricas.valorRedimido ?? 0).toLocaleString('es-CO')}`, label: 'Bonos redimidos', icon: 'card-outline' as const },
+    ];
+  }, [metricas]);
+
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-    >
-      <View style={[styles.statusBar, online ? styles.online : styles.offline]}>
-        <Text style={styles.statusText}>{online ? 'En línea' : 'Sin conexión'}</Text>
-      </View>
+    <DashboardContainer>
+      <ScrollView
+        style={[styles.container]}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <Animated.View style={[headerStyle]}>
+          <Header statusText={online ? 'En línea' : 'Sin conexión'} />
+        </Animated.View>
 
-      <Text style={styles.sectionTitle}>Métricas</Text>
-      {loading && !metricas ? (
-        <ActivityIndicator size="large" color="#1e3a5f" style={styles.loader} />
-      ) : metricas ? (
-        <View style={styles.metricasCard}>
-          <Text style={styles.metrica}>Total participaciones: {metricas.totalParticipaciones}</Text>
-          <Text style={styles.metrica}>Total ganadores: {metricas.totalGanadores}</Text>
-          <Text style={styles.metrica}>Tasa ganadores: {metricas.tasaObservada}%</Text>
-          <Text style={styles.metrica}>Valor bonos emitidos: ${Number(metricas.valorEmitido).toLocaleString('es-CO')}</Text>
-          <Text style={styles.metrica}>Valor bonos redimidos: ${Number(metricas.valorRedimido).toLocaleString('es-CO')}</Text>
-        </View>
-      ) : (
-        <Text style={styles.hint}>Conéctate para ver métricas.</Text>
-      )}
+        {loading && !metricas ? (
+          <ActivityIndicator size="large" color={theme.colors.primary} style={styles.loader} />
+        ) : metricas ? (
+          <>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Métricas</Text>
 
-      <Text style={styles.sectionTitle}>Secciones</Text>
-      {cardItems.map((item) => (
-        <TouchableOpacity
-          key={item.key}
-          style={styles.card}
-          onPress={() => navigation.navigate(item.screen)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.cardTitle}>{item.title}</Text>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
+            <View style={styles.kpiGrid}>
+              {metricasCards.map((c, idx) => {
+                const v = kpiAnims[idx];
+                return (
+                  <Animated.View key={c.label} style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
+                    <KpiCard value={c.value} label={c.label} iconName={c.icon as any} />
+                  </Animated.View>
+                );
+              })}
+            </View>
+
+            <Animated.View style={[chartStyle]}>
+              <ChartSection metricas={metricas} />
+            </Animated.View>
+
+            <Text style={[styles.sectionTitle, { color: theme.colors.text, marginTop: 18 }]}>Secciones</Text>
+
+            <View style={styles.menuGrid}>
+              {cardItems.map((item, idx) => {
+                const v = menuAnims[idx];
+                return (
+                  <Animated.View
+                    key={item.key}
+                    style={{
+                      opacity: v,
+                      transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+                      width: '48%',
+                    }}
+                  >
+                    <MenuCard title={item.title} iconName={item.icon} onPress={() => navigation.navigate(item.screen)} />
+                  </Animated.View>
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <Text style={[styles.hint, { color: theme.colors.mutedText }]}>Conéctate para ver métricas.</Text>
+        )}
+
+        <View style={{ height: 20 }} />
+      </ScrollView>
+    </DashboardContainer>
   );
 }
 
+export default function AdminDashboardScreen() {
+  return <AdminDashboardContent />;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
+  container: { flex: 1 },
   content: { padding: 16, paddingBottom: 40 },
-  statusBar: { padding: 12, borderRadius: 8, marginBottom: 16 },
-  online: { backgroundColor: '#dcfce7' },
-  offline: { backgroundColor: '#fecaca' },
-  statusText: { fontSize: 16, fontWeight: '600', color: '#1e293b' },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1e293b', marginBottom: 12, marginTop: 8 },
+  sectionTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12, marginTop: 8 },
   loader: { marginVertical: 24 },
-  metricasCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginBottom: 24,
-  },
-  metrica: { fontSize: 16, color: '#334155', marginBottom: 8 },
-  hint: { fontSize: 14, color: '#64748b', marginBottom: 24 },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 18,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#1e3a5f' },
-  noAccess: { fontSize: 16, color: '#64748b', textAlign: 'center', marginTop: 40 },
+  hint: { fontSize: 14, color: '#64748b', marginBottom: 24, textAlign: 'center' },
+  noAccess: { fontSize: 16, textAlign: 'center', marginTop: 40 },
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  menuGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
 });

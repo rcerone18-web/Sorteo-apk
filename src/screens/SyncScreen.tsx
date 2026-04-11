@@ -2,9 +2,11 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Alert } from 'react-native';
 import { useSync } from '../context/SyncContext';
 import { useAuth } from '../context/AuthContext';
+import { useAppTheme } from '../theme/ThemeProvider';
 
 export default function SyncScreen() {
   const { logout } = useAuth();
+  const { theme } = useAppTheme();
   const {
     online,
     pendientesVentas,
@@ -48,6 +50,7 @@ export default function SyncScreen() {
       <TouchableOpacity
         style={[
           styles.syncButton,
+          { backgroundColor: theme.colors.primary },
           (!puedeSincronizar || totalPendientes === 0) && styles.buttonDisabled,
         ]}
         onPress={handleSync}

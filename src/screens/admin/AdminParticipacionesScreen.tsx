@@ -2,12 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   ScrollView,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   RefreshControl,
 } from 'react-native';
@@ -15,6 +13,10 @@ import { useAuth } from '../../context/AuthContext';
 import * as api from '../../api/client';
 import { toCsvRow, shareCsv } from '../../utils/csvExport';
 import type { ParticipacionItem } from '../../types';
+import { useAppTheme } from '../../theme/ThemeProvider';
+import { Card } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
 
 function formatDate(s: string) {
   if (!s) return '';
@@ -23,6 +25,7 @@ function formatDate(s: string) {
 
 export default function AdminParticipacionesScreen() {
   const { user } = useAuth();
+  const { theme } = useAppTheme();
   const [list, setList] = useState<ParticipacionItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -88,37 +91,66 @@ export default function AdminParticipacionesScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <ScrollView style={styles.filters} contentContainerStyle={styles.filtersContent} keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>Desde</Text>
-        <TextInput style={styles.input} value={desde} onChangeText={setDesde} placeholder="YYYY-MM-DD" />
-        <Text style={styles.label}>Hasta</Text>
-        <TextInput style={styles.input} value={hasta} onChangeText={setHasta} placeholder="YYYY-MM-DD" />
-        <Text style={styles.label}>Cliente / Cédula</Text>
-        <TextInput style={styles.input} value={cliente} onChangeText={setCliente} placeholder="Buscar..." />
-        <Text style={styles.label}>Nº factura</Text>
-        <TextInput style={styles.input} value={factura} onChangeText={setFactura} placeholder="Buscar..." />
-        <Text style={styles.label}>Estado bono</Text>
-        <View style={styles.row}>
-          {['', 'disponible', 'redimido', 'vencido'].map((e) => (
-            <TouchableOpacity
-              key={e || 'todos'}
-              style={[styles.chip, estado === e ? styles.chipActive : null]}
-              onPress={() => setEstado(e)}
-            >
-              <Text style={[styles.chipText, estado === e ? styles.chipTextActive : null]}>{e || 'Todos'}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={styles.rowButtons}>
-          <TouchableOpacity style={[styles.btn, styles.btnFlex]} onPress={load} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>Filtrar</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, styles.btnSecondary, styles.btnFlex]} onPress={exportarCsv} disabled={list.length === 0}>
-            <Text style={styles.btnText}>Exportar CSV</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Card style={styles.filtersCard}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.filtersContent}>
+          <Text style={[styles.label, { color: theme.colors.mutedText }]}>Desde</Text>
+          <Input placeholder="YYYY-MM-DD" value={desde} onChangeText={setDesde} />
+
+          <Text style={[styles.label, { color: theme.colors.mutedText }]}>Hasta</Text>
+          <Input placeholder="YYYY-MM-DD" value={hasta} onChangeText={setHasta} />
+
+          <Text style={[styles.label, { color: theme.colors.mutedText }]}>Cliente / Cédula</Text>
+          <Input placeholder="Buscar..." value={cliente} onChangeText={setCliente} />
+
+          <Text style={[styles.label, { color: theme.colors.mutedText }]}>Nº factura</Text>
+          <Input placeholder="Buscar..." value={factura} onChangeText={setFactura} />
+
+          <Text style={[styles.label, { color: theme.colors.mutedText }]}>Estado bono</Text>
+          <View style={styles.row}>
+            {['', 'disponible', 'redimido', 'vencido'].map((e) => {
+              const active = estado === e;
+              return (
+                <TouchableOpacity
+                  key={e || 'todos'}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: active ? theme.colors.primary : theme.colors.card,
+                      borderColor: active ? theme.colors.primary : theme.colors.border,
+                    },
+                  ]}
+                  onPress={() => setEstado(e)}
+                >
+                  <Text style={[styles.chipText, { color: active ? '#FFFFFF' : theme.colors.mutedText }]}>
+                    {e || 'Todos'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={styles.rowButtons}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Button
+                title="Filtrar"
+                onPress={load}
+                disabled={loading}
+                loading={loading}
+                variant="primary"
+              />
+            </View>
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Button
+                title="Exportar CSV"
+                onPress={exportarCsv}
+                disabled={list.length === 0}
+                variant="secondary"
+              />
+            </View>
+          </View>
+        </ScrollView>
+      </Card>
       <FlatList
         data={list}
         keyExtractor={(item) => item.id}
@@ -127,57 +159,48 @@ export default function AdminParticipacionesScreen() {
           !loading ? <Text style={styles.empty}>Sin resultados</Text> : null
         }
         renderItem={({ item }) => (
-          <View style={styles.rowCard}>
-            <Text style={styles.cellFactura}>{item.facturaNumero}</Text>
-            <Text style={styles.cell}>{formatDate(item.fechaFactura)}</Text>
-            <Text style={styles.cell} numberOfLines={1}>{item.nombreCliente}</Text>
-            <Text style={styles.cell}>{item.cedula}</Text>
-            <Text style={styles.cell}>${Number(item.valorTotal).toLocaleString('es-CO')}</Text>
-            <Text style={styles.cellSmall}>{formatDate(item.fechaRegistro)}</Text>
-          </View>
+          <Card style={styles.itemCard}>
+            <Text style={[styles.itemTitle, { color: theme.colors.text }]}>
+              Factura: {item.facturaNumero}
+            </Text>
+            <Text style={[styles.itemSub, { color: theme.colors.mutedText }]}>
+              Fecha: {formatDate(item.fechaFactura)} • Registro: {formatDate(item.fechaRegistro)}
+            </Text>
+            <Text style={[styles.itemClient, { color: theme.colors.text }]} numberOfLines={1}>
+              {item.nombreCliente}
+            </Text>
+            <Text style={[styles.itemMeta, { color: theme.colors.mutedText }]}>
+              Cédula: {item.cedula} • Valor: ${Number(item.valorTotal).toLocaleString('es-CO')}
+            </Text>
+          </Card>
         )}
         style={styles.list}
-        ListHeaderComponent={
-          list.length > 0 ? (
-            <View style={styles.headerRow}>
-              <Text style={styles.headerCell}>Factura</Text>
-              <Text style={styles.headerCell}>Fcha fact.</Text>
-              <Text style={styles.headerCell}>Cliente</Text>
-              <Text style={styles.headerCell}>Cédula</Text>
-              <Text style={styles.headerCell}>Valor</Text>
-              <Text style={styles.headerCellSmall}>Fcha reg.</Text>
-            </View>
-          ) : null
-        }
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
-  filters: { maxHeight: 280, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#e2e8f0' },
-  filtersContent: { padding: 12 },
-  label: { fontSize: 12, color: '#64748b', marginTop: 6 },
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 8, fontSize: 14 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
-  rowButtons: { flexDirection: 'row', marginTop: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#e2e8f0', marginRight: 8, marginBottom: 4 },
-  chipActive: { backgroundColor: '#1e3a5f' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextActive: { color: '#fff' },
-  btn: { backgroundColor: '#1e3a5f', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
-  btnFlex: { flex: 1 },
-  btnSecondary: { backgroundColor: '#475569', marginLeft: 8 },
-  btnText: { color: '#fff', fontWeight: '600' },
+  container: { flex: 1 },
+  filtersCard: { margin: 16 },
+  filtersContent: { paddingBottom: 6 },
+  label: { fontSize: 12, fontWeight: '900', marginTop: 10 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10, gap: 8 } as any,
+  rowButtons: { flexDirection: 'row', marginTop: 14 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 4,
+  },
+  chipText: { fontSize: 13, fontWeight: '900' },
   list: { flex: 1 },
-  headerRow: { flexDirection: 'row', padding: 10, backgroundColor: '#1e3a5f' },
-  headerCell: { flex: 1, color: '#fff', fontWeight: '600', fontSize: 12 },
-  headerCellSmall: { width: 72, color: '#fff', fontWeight: '600', fontSize: 11 },
-  rowCard: { flexDirection: 'row', padding: 10, borderBottomWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' },
-  cellFactura: { flex: 1, fontSize: 12 },
-  cell: { flex: 1, fontSize: 12 },
-  cellSmall: { width: 72, fontSize: 11, color: '#64748b' },
+  itemCard: { marginHorizontal: 16, marginVertical: 8, padding: 16 },
+  itemTitle: { fontSize: 14, fontWeight: '900', marginBottom: 6 },
+  itemSub: { fontSize: 12, fontWeight: '800' },
+  itemClient: { fontSize: 13, fontWeight: '900', marginTop: 6 },
+  itemMeta: { fontSize: 12, fontWeight: '700', marginTop: 6 },
   empty: { padding: 24, textAlign: 'center', color: '#64748b' },
   noAccess: { fontSize: 16, color: '#64748b', textAlign: 'center', marginTop: 40 },
 });

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -11,6 +10,7 @@ import {
   Modal,
   Animated,
   Easing,
+  Platform,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSync } from '../context/SyncContext';
@@ -19,12 +19,59 @@ import * as api from '../api/client';
 import { isOnline } from '../sync/syncService';
 import { ejecutarSorteoLocal } from '../utils/sorteo';
 import { guardarConfigCache, obtenerConfigCache } from '../db';
+import { useAppTheme } from '../theme/ThemeProvider';
+import { Card } from '../components/ui/Card';
+import { Input } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
+
+const currencyFormatter = new Intl.NumberFormat('es-CO', {
+  style: 'currency',
+  currency: 'COP',
+  maximumFractionDigits: 0,
+});
+
+function formatCopNoDecimals(value: unknown) {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(n)) return '';
+  return currencyFormatter.format(n);
+}
+
+function parseCopInput(value: string) {
+  // Soporta valores como: "273000.00", "$273.000", "273.000"
+  const clean = value.trim().replace(/[^0-9.,-]/g, '');
+  if (!clean) return NaN;
+
+  const lastDot = clean.lastIndexOf('.');
+  const lastComma = clean.lastIndexOf(',');
+  const lastSepIdx = Math.max(lastDot, lastComma);
+  if (lastSepIdx === -1) {
+    const asNumber = Number(clean);
+    return Number.isNaN(asNumber) ? NaN : asNumber;
+  }
+
+  const sepChar = clean[lastSepIdx];
+  const digitsAfter = clean.length - lastSepIdx - 1;
+
+  // Si tiene 2 dígitos después del separador, lo tratamos como decimal (ej: 273000.00)
+  if (digitsAfter === 2) {
+    const integerPart = clean.slice(0, lastSepIdx).replace(/[.,]/g, '');
+    const fractionPart = clean.slice(lastSepIdx + 1);
+    const normalized = `${integerPart}.${fractionPart}`;
+    const asNumber = parseFloat(normalized);
+    return Number.isNaN(asNumber) ? NaN : asNumber;
+  }
+
+  // Si no tiene 2 dígitos después, lo tratamos como separador de miles (ej: 273.000)
+  const asNumber = parseFloat(clean.replace(/[.,]/g, ''));
+  return Number.isNaN(asNumber) ? NaN : asNumber;
+}
 
 export default function ParticipacionScreen() {
   const route = useRoute();
   const navigation = useNavigation();
   const navParams = (route.params ?? {}) as { numeroFactura?: string };
   const { refrescarPendientes } = useSync();
+  const { theme } = useAppTheme();
   const numeroInicial = navParams.numeroFactura ?? '';
   const [numeroFactura, setNumeroFactura] = useState(numeroInicial);
   const [fechaFactura, setFechaFactura] = useState('');
@@ -77,7 +124,7 @@ export default function ParticipacionScreen() {
           setFechaFactura(v.fechaFactura);
           setCedulaCliente(v.cedulaCliente);
           setNombreCliente(v.nombreCliente);
-          setValorTotal(String(v.valorTotal));
+          setValorTotal(formatCopNoDecimals(v.valorTotal));
         } else {
           setFechaFactura('');
           setCedulaCliente('');
@@ -90,7 +137,7 @@ export default function ParticipacionScreen() {
           setFechaFactura(v.fechaFactura);
           setCedulaCliente(v.cedulaCliente);
           setNombreCliente(v.nombreCliente);
-          setValorTotal(String(v.valorTotal));
+          setValorTotal(formatCopNoDecimals(v.valorTotal));
         } else {
           setFechaFactura('');
           setCedulaCliente('');
@@ -123,7 +170,7 @@ export default function ParticipacionScreen() {
       Alert.alert('Error', 'Debes aceptar el consentimiento de datos');
       return;
     }
-    const valor = parseFloat(valorTotal);
+    const valor = parseCopInput(valorTotal);
     if (isNaN(valor) || valor < 0) {
       Alert.alert('Error', 'Valor total inválido');
       return;
@@ -212,10 +259,19 @@ export default function ParticipacionScreen() {
       }
     } catch (e: unknown) {
       setShowRoulette(false);
-      const res = (e as { response?: { data?: { error?: string; presentacionesRequeridas?: string[] }; status?: number } })?.response;
-      const msg = res?.status === 403 && Array.isArray(res?.data?.presentacionesRequeridas) && res.data.presentacionesRequeridas.length > 0
-        ? `No puedes participar porque esta factura no incluye ninguna de las referencias seleccionadas.\n\nPara participar debes comprar al menos una de estas presentaciones:\n${res.data.presentacionesRequeridas.join(', ')}`
-        : res?.data?.error || (e instanceof Error ? (e as Error).message : 'No se pudo registrar la participación');
+      const res = (e as { response?: { data?: { error?: unknown; presentacionesRequeridas?: string[] }; status?: number } })?.response;
+      const serverError = res?.data?.error;
+      const normalizedServerError =
+        typeof serverError === 'string'
+          ? serverError
+          : serverError && typeof serverError === 'object' && 'message' in serverError
+            ? String((serverError as any).message)
+            : undefined;
+
+      const msg =
+        res?.status === 403 && Array.isArray(res?.data?.presentacionesRequeridas) && res.data.presentacionesRequeridas.length > 0
+          ? `No puedes participar porque esta factura no incluye ninguna de las referencias seleccionadas.\n\nPara participar debes comprar al menos una de estas presentaciones:\n${res.data.presentacionesRequeridas.join(', ')}`
+          : normalizedServerError || (e instanceof Error ? (e as Error).message : 'No se pudo registrar la participación');
       Alert.alert('Error', msg);
     } finally {
       setLoadingSubmit(false);
@@ -223,67 +279,74 @@ export default function ParticipacionScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.section}>Datos de la participación</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Número de factura"
-        value={numeroFactura}
-        onChangeText={setNumeroFactura}
-        onBlur={() => buscarFactura(numeroFactura)}
-        editable={!loadingAutocomplete}
-      />
-      {loadingAutocomplete && <ActivityIndicator style={styles.loader} />}
-      <TextInput
-        style={styles.input}
-        placeholder="Fecha factura"
-        value={fechaFactura}
-        onChangeText={setFechaFactura}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Cédula"
-        value={cedulaCliente}
-        onChangeText={setCedulaCliente}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Nombre cliente"
-        value={nombreCliente}
-        onChangeText={setNombreCliente}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Valor total"
-        value={valorTotal}
-        onChangeText={setValorTotal}
-        keyboardType="numeric"
-      />
-      <TouchableOpacity
-        style={[styles.checkRow, consentimiento && styles.checkRowOn]}
-        onPress={() => setConsentimiento((c) => !c)}
-      >
-        <Text style={styles.checkText}>Acepto consentimiento de uso de datos</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.button, loadingSubmit && styles.buttonDisabled]}
-        onPress={enviar}
-        disabled={loadingSubmit}
-      >
-        {loadingSubmit ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Participar en el sorteo</Text>
-        )}
-      </TouchableOpacity>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      contentContainerStyle={styles.content}
+    >
+      <Card style={styles.block}>
+        <Text style={[styles.section, { color: theme.colors.text }]}>Datos de la participación</Text>
+
+        <Input
+          placeholder="Número de factura"
+          value={numeroFactura}
+          onChangeText={setNumeroFactura}
+          onBlur={() => buscarFactura(numeroFactura)}
+          editable={!loadingAutocomplete}
+        />
+        {loadingAutocomplete && <ActivityIndicator style={styles.loader} />}
+
+        <View style={{ height: 10 }} />
+        <Input placeholder="Fecha factura" value={fechaFactura} onChangeText={setFechaFactura} />
+
+        <View style={{ height: 10 }} />
+        <Input
+          placeholder="Cédula"
+          value={cedulaCliente}
+          onChangeText={(t) => setCedulaCliente(t.replace(/\D+/g, ''))}
+          keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+          inputMode="numeric"
+        />
+
+        <View style={{ height: 10 }} />
+        <Input placeholder="Nombre cliente" value={nombreCliente} onChangeText={setNombreCliente} />
+
+        <View style={{ height: 10 }} />
+        <Input
+          placeholder="Valor total"
+          value={valorTotal}
+          onChangeText={setValorTotal}
+          keyboardType="numeric"
+        />
+
+        <TouchableOpacity
+          style={[
+            styles.checkRow,
+            consentimiento && styles.checkRowOn,
+            { borderColor: theme.colors.border, backgroundColor: consentimiento ? '#eff6ff' : theme.colors.card },
+          ]}
+          onPress={() => setConsentimiento((c) => !c)}
+        >
+          <Text style={[styles.checkText, { color: theme.colors.text }]}>Acepto consentimiento de uso de datos</Text>
+        </TouchableOpacity>
+
+        <View style={{ marginTop: 14 }}>
+          <Button
+            title="Participar en el sorteo"
+            onPress={enviar}
+            loading={loadingSubmit}
+            disabled={loadingSubmit}
+            variant="primary"
+          />
+        </View>
+      </Card>
 
       {/* Ruleta al participar */}
       <Modal visible={showRoulette} transparent animationType="fade" onRequestClose={() => {}}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Sorteo</Text>
+          <View style={[styles.modalCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Sorteo</Text>
             <View style={styles.rouletteWrapper}>
-              <Animated.View style={[styles.roulette, { transform: [{ rotate: spin }] }]}>
+              <Animated.View style={[styles.roulette, { transform: [{ rotate: spin }], borderColor: theme.colors.primary }]}>
                 <View style={[styles.half, styles.halfGanaste]}>
                   <Text style={styles.halfText}>¡Felicidades, ganaste!</Text>
                 </View>
@@ -293,11 +356,18 @@ export default function ParticipacionScreen() {
               </Animated.View>
               <View style={styles.pointer} />
             </View>
-            <Text style={styles.modalStatus}>{rouletteText}</Text>
+            <Text style={[styles.modalStatus, { color: theme.colors.mutedText }]}>{rouletteText}</Text>
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnSecondary, !pendingNavParams?.gano && styles.modalBtnFull]}
+                style={[
+                  styles.modalBtn,
+                  styles.modalBtnSecondary,
+                  !pendingNavParams?.gano && styles.modalBtnFull,
+                  {
+                    backgroundColor: pendingNavParams?.gano ? theme.colors.border : theme.colors.primary,
+                  },
+                ]}
                 onPress={() => {
                   setShowRoulette(false);
                   setPendingNavParams(null);
@@ -307,11 +377,24 @@ export default function ParticipacionScreen() {
                 }}
                 disabled={!rouletteDone}
               >
-                <Text style={styles.modalBtnText}>Registrar otra venta</Text>
+                <Text
+                  style={[
+                    styles.modalBtnText,
+                    {
+                      color: pendingNavParams?.gano ? theme.colors.text : '#FFFFFF',
+                    },
+                  ]}
+                >
+                  Registrar otra venta
+                </Text>
               </TouchableOpacity>
               {pendingNavParams?.gano ? (
                 <TouchableOpacity
-                  style={[styles.modalBtn, (!rouletteDone || !pendingNavParams) && styles.buttonDisabled]}
+                  style={[
+                    styles.modalBtn,
+                    (!rouletteDone || !pendingNavParams) && styles.buttonDisabled,
+                    { backgroundColor: theme.colors.primary },
+                  ]}
                   disabled={!rouletteDone || !pendingNavParams}
                   onPress={() => {
                     if (!pendingNavParams) return;
@@ -343,25 +426,22 @@ export default function ParticipacionScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
+  container: { flex: 1 },
   content: { padding: 16, paddingBottom: 40 },
-  section: { fontSize: 16, fontWeight: '600', color: '#334155', marginBottom: 8, marginTop: 12 },
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 8 },
+  block: { marginBottom: 16 },
+  section: { fontSize: 16, fontWeight: '800', marginBottom: 10 },
   loader: { marginBottom: 8 },
-  checkRow: { padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16, backgroundColor: '#fff' },
+  checkRow: { padding: 14, borderRadius: 12, borderWidth: 1, marginBottom: 16 },
   checkRowOn: { borderColor: '#2563eb', backgroundColor: '#eff6ff' },
-  checkText: { fontSize: 15, color: '#334155' },
-  button: { backgroundColor: '#2563eb', borderRadius: 10, padding: 16, alignItems: 'center' },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  checkText: { fontSize: 15, fontWeight: '700' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 20 },
-  modalCard: { backgroundColor: '#fff', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1e293b', marginBottom: 12, textAlign: 'center' },
-  modalStatus: { fontSize: 14, color: '#334155', textAlign: 'center', marginTop: 10 },
+  modalCard: { borderRadius: 14, padding: 16, borderWidth: 1 },
+  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12, textAlign: 'center' },
+  modalStatus: { fontSize: 14, textAlign: 'center', marginTop: 10 },
   modalButtons: { flexDirection: 'row', marginTop: 14 },
-  modalBtn: { flex: 1, backgroundColor: '#2563eb', borderRadius: 10, padding: 12, alignItems: 'center' },
-  modalBtnSecondary: { backgroundColor: '#475569', marginRight: 10 },
+  modalBtn: { flex: 1, borderRadius: 10, padding: 12, alignItems: 'center' },
+  modalBtnSecondary: { marginRight: 10 },
   modalBtnFull: { marginRight: 0 },
   modalBtnText: { color: '#fff', fontWeight: '700' },
 

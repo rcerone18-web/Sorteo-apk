@@ -11,6 +11,7 @@ import {
   Modal,
   FlatList,
   Pressable,
+  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSync } from '../context/SyncContext';
@@ -19,6 +20,10 @@ import * as api from '../api/client';
 import { isOnline } from '../sync/syncService';
 import type { ItemFactura } from '../types';
 import { PRESENTACIONES } from '../constants/presentaciones';
+import { useAppTheme } from '../theme/ThemeProvider';
+import { Card } from '../components/ui/Card';
+import { Input } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
 
 const INIT_ITEM: ItemFactura = { tipoPresentacion: '', cantidad: 0, precioUnitario: 0, subtotal: 0 };
 
@@ -38,6 +43,7 @@ function presentacionesToItems(presentaciones: { presentacion: string; cantidad:
 export default function FacturacionScreen() {
   const navigation = useNavigation<{ navigate: (a: string, b?: { numeroFactura: string }) => void }>();
   const { refrescarPendientes } = useSync();
+  const { theme } = useAppTheme();
   const [loading, setLoading] = useState(false);
   const [loadingAutocomplete, setLoadingAutocomplete] = useState(false);
   const [fechaFactura, setFechaFactura] = useState(() => new Date().toISOString().slice(0, 10));
@@ -230,8 +236,14 @@ export default function FacturacionScreen() {
       }
       limpiar();
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { error?: string; compraMinimaRequerida?: number }; status?: number } };
-      let msg = err?.response?.data?.error ?? (e instanceof Error ? e.message : 'No se pudo guardar la venta');
+      const err = e as {
+        response?: { data?: { error?: unknown; compraMinimaRequerida?: number }; status?: number };
+      };
+      const serverError = err?.response?.data?.error;
+      let msg: string;
+      if (typeof serverError === 'string') msg = serverError;
+      else if (serverError && typeof serverError === 'object' && 'message' in serverError) msg = String((serverError as any).message);
+      else msg = e instanceof Error ? e.message : 'No se pudo guardar la venta';
       if (err?.response?.status === 422 && err?.response?.data?.compraMinimaRequerida != null) {
         msg += ` Requiere compra mínima: $${Number(err.response.data.compraMinimaRequerida).toLocaleString('es-CO')}.`;
       }
@@ -255,10 +267,10 @@ export default function FacturacionScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.section}>Autocompletar por factura o cédula</Text>
-      <TextInput
-        style={styles.input}
+    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.section, { color: theme.colors.text }]}>Autocompletar por factura o cédula</Text>
+      <Input
+        icon="receipt-outline"
         placeholder="Nº factura (autocompletar datos)"
         value={numeroFacturaRef}
         onChangeText={(t) => {
@@ -267,39 +279,33 @@ export default function FacturacionScreen() {
         }}
         onBlur={() => autocompletarPorFactura(numeroFacturaRefRef.current)}
       />
-      <Text style={styles.section}>Datos del cliente</Text>
-      <TextInput
-        style={styles.input}
+      <Text style={[styles.section, { color: theme.colors.text }]}>Datos del cliente</Text>
+      <Input
+        icon="person-outline"
         placeholder="Cédula"
         value={cedulaCliente}
         onChangeText={(t) => {
-          cedulaRef.current = t;
-          setCedulaCliente(t);
+          const onlyDigits = t.replace(/\D+/g, '');
+          cedulaRef.current = onlyDigits;
+          setCedulaCliente(onlyDigits);
         }}
         onBlur={() => autocompletarPorCedula(cedulaRef.current)}
+        keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+        inputMode="numeric"
       />
       {loadingAutocomplete && <ActivityIndicator style={styles.loader} size="small" />}
-      <TextInput
-        style={styles.input}
-        placeholder="Nombre cliente"
-        value={nombreCliente}
-        onChangeText={setNombreCliente}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Fecha factura (YYYY-MM-DD)"
-        value={fechaFactura}
-        onChangeText={setFechaFactura}
-      />
-      <TextInput
-        style={styles.input}
+      <Input icon="person-circle-outline" placeholder="Nombre cliente" value={nombreCliente} onChangeText={setNombreCliente} />
+      <Input placeholder="Fecha factura (YYYY-MM-DD)" value={fechaFactura} onChangeText={setFechaFactura} />
+      <Input
+        icon="egg-outline"
         placeholder="Total huevos (opcional)"
         value={totalHuevos}
         onChangeText={setTotalHuevos}
         keyboardType="numeric"
+        inputMode="numeric"
       />
-      <TextInput
-        style={styles.input}
+      <Input
+        icon="pricetag-outline"
         placeholder="Código bono (opcional, 50% próxima compra)"
         value={codigoBono}
         onChangeText={(t) => {
@@ -309,38 +315,48 @@ export default function FacturacionScreen() {
         }}
         onBlur={() => cargarCompraMinimaBono()}
       />
-      <Text style={styles.section}>Ítems por presentación (venta por cartones)</Text>
+      <Text style={[styles.section, { color: theme.colors.text }]}>Ítems por presentación (venta por cartones)</Text>
       {items.map((it, i) => (
         <View key={i} style={styles.itemRow}>
           <TouchableOpacity
-            style={[styles.input, styles.inputPresentacion]}
+            style={[styles.input, styles.inputPresentacion, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
             onPress={() => setPickerIndex(i)}
           >
-            <Text style={it.tipoPresentacion ? styles.pickerText : styles.pickerPlaceholder}>
+            <Text style={[it.tipoPresentacion ? styles.pickerText : styles.pickerPlaceholder, { color: it.tipoPresentacion ? theme.colors.text : theme.colors.mutedText }]}>
               {it.tipoPresentacion || 'Seleccionar presentación'}
             </Text>
             {it.tipoPresentacion ? (
-              <Text style={styles.precioRef}>${(it.precioUnitario || 0).toLocaleString('es-CO')}/cartón</Text>
+              <Text style={[styles.precioRef, { color: theme.colors.mutedText }]}>${(it.precioUnitario || 0).toLocaleString('es-CO')}/cartón</Text>
             ) : null}
           </TouchableOpacity>
-          <TextInput
-            style={[styles.input, styles.inputCant]}
-            placeholder="Cartones"
-            value={it.cantidad ? String(it.cantidad) : ''}
-            onChangeText={(t) => updateItem(i, { cantidad: parseInt(t, 10) || 0 })}
-            onBlur={recalcTotal}
-            keyboardType="numeric"
-          />
-          <TextInput
-            style={[styles.input, styles.inputPrecio]}
-            placeholder="Precio"
-            value={it.precioUnitario ? String(it.precioUnitario) : ''}
-            onChangeText={(t) => updateItem(i, { precioUnitario: parseFloat(t) || 0 })}
-            onBlur={recalcTotal}
-            keyboardType="numeric"
-          />
-          <TouchableOpacity onPress={() => removeItem(i)} style={styles.removeBtn}>
-            <Text style={styles.removeText}>−</Text>
+          <View style={styles.inputWrap}>
+            <Text style={[styles.inputLabel, { color: theme.colors.mutedText }]}>Cant.</Text>
+            <TextInput
+              style={[styles.input, styles.inputCant, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, color: theme.colors.text }]}
+              placeholder="0"
+              placeholderTextColor={theme.colors.mutedText}
+              value={it.cantidad ? String(it.cantidad) : ''}
+              onChangeText={(t) => updateItem(i, { cantidad: parseInt(t, 10) || 0 })}
+              onBlur={recalcTotal}
+              keyboardType="numeric"
+              inputMode="numeric"
+            />
+          </View>
+          <View style={styles.inputWrap}>
+            <Text style={[styles.inputLabel, { color: theme.colors.mutedText }]}>Precio</Text>
+            <TextInput
+              style={[styles.input, styles.inputPrecio, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, color: theme.colors.text }]}
+              placeholder="0"
+              placeholderTextColor={theme.colors.mutedText}
+              value={it.precioUnitario ? String(it.precioUnitario) : ''}
+              onChangeText={(t) => updateItem(i, { precioUnitario: parseFloat(t) || 0 })}
+              onBlur={recalcTotal}
+              keyboardType="numeric"
+              inputMode="numeric"
+            />
+          </View>
+          <TouchableOpacity onPress={() => removeItem(i)} style={[styles.removeBtn, { backgroundColor: theme.colors.primary + '33' }]}>
+            <Text style={[styles.removeText, { color: theme.colors.primary }]}>−</Text>
           </TouchableOpacity>
         </View>
       ))}
@@ -368,14 +384,15 @@ export default function FacturacionScreen() {
         </Pressable>
       </Modal>
       <TouchableOpacity onPress={addItem} style={styles.addBtn}>
-        <Text style={styles.addText}>+ Agregar ítem</Text>
+        <Text style={[styles.addText, { color: theme.colors.primary }]}>+ Agregar ítem</Text>
       </TouchableOpacity>
-      <TextInput
-        style={styles.input}
-        placeholder="Valor total"
+      <Input
+        icon="cash-outline"
+        placeholder="Valor total (COP)"
         value={valorTotal}
         onChangeText={setValorTotal}
         keyboardType="numeric"
+        inputMode="numeric"
       />
       {bonoAplicable && (
         <View style={styles.descuentoBox}>
@@ -393,13 +410,9 @@ export default function FacturacionScreen() {
       {numeroFacturaGuardada && (
         <Text style={styles.numeroGuardada}>Última factura: {numeroFacturaGuardada}</Text>
       )}
-      <TouchableOpacity
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={guardar}
-        disabled={loading}
-      >
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Guardar venta</Text>}
-      </TouchableOpacity>
+      <View style={{ marginTop: 14 }}>
+        <Button title="Guardar venta" onPress={guardar} loading={loading} disabled={loading} variant="primary" />
+      </View>
     </ScrollView>
   );
 }
@@ -408,19 +421,21 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f1f5f9' },
   content: { padding: 16, paddingBottom: 40 },
   section: { fontSize: 16, fontWeight: '600', color: '#334155', marginBottom: 8, marginTop: 12 },
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 8 },
+  input: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 8 },
   loader: { marginBottom: 8 },
-  inputPresentacion: { flex: 1, justifyContent: 'center' },
+  inputPresentacion: { flex: 1, justifyContent: 'center', minHeight: 48 },
+  inputWrap: { alignItems: 'center' },
+  inputLabel: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
   inputCant: { width: 72, textAlign: 'center' },
   inputPrecio: { width: 90, textAlign: 'right' },
-  pickerText: { fontSize: 15, color: '#1e293b', fontWeight: '500' },
-  pickerPlaceholder: { fontSize: 15, color: '#94a3b8' },
-  precioRef: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  removeBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#fecaca', justifyContent: 'center', alignItems: 'center' },
-  removeText: { fontSize: 18, color: '#b91c1c', fontWeight: '700' },
+  pickerText: { fontSize: 15, fontWeight: '500' },
+  pickerPlaceholder: { fontSize: 15 },
+  precioRef: { fontSize: 12, marginTop: 2 },
+  itemRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginBottom: 8 },
+  removeBtn: { width: 36, height: 36, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  removeText: { fontSize: 18, fontWeight: '700' },
   addBtn: { padding: 12, marginBottom: 8 },
-  addText: { color: '#2563eb', fontSize: 16, fontWeight: '600' },
+  addText: { fontSize: 16, fontWeight: '600' },
   descuentoBox: { backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0', borderRadius: 10, padding: 14, marginBottom: 12 },
   descuentoTitle: { fontSize: 15, fontWeight: '600', color: '#065f46', marginBottom: 8 },
   descuentoLine: { fontSize: 14, color: '#047857', marginBottom: 4 },

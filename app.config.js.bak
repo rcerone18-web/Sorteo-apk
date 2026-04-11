@@ -10,10 +10,14 @@ export default {
     android: {
       adaptiveIcon: { backgroundColor: '#2563eb' },
       package: 'com.sorteo.promocional',
+      versionCode: 1,
     },
     plugins: ['expo-sqlite'],
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.100:3000',
+      eas: {
+        projectId: '9f79e108-2d6a-48a7-873a-b4570be3fb7e',
+      },
     },
   },
 };

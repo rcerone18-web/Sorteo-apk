@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as api from '../api/client';
+import { initConfig } from '../config';
 import { initDb } from '../db';
 import type { Usuario } from '../types';
 
@@ -49,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      await initConfig();
       await initDb();
       await restoreSession();
     })();

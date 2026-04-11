@@ -1,0 +1,3 @@
+# Evitar que .npmrc (script-shell=cmd.exe) se suba a EAS (Linux)
+# En EAS no existe cmd.exe y fallaría el build
+.npmrc
