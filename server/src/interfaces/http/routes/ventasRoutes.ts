@@ -9,6 +9,7 @@ import { ConfigRepositoryMySQL } from '../../../infrastructure/repositories/Conf
 import { CrearVentaUseCase } from '../../../domain/use-cases/ventas/CrearVentaUseCase';
 import { pool } from '../../../infrastructure/database/mysqlClient';
 import type { RowDataPacket } from 'mysql2';
+import { facturaYmdFromStored } from '../../../shared/date/participacionMismoDia';
 
 const ventaRepo = new VentaRepositoryMySQL();
 const bonoRepo = new BonoRepositoryMySQL();
@@ -19,6 +20,32 @@ const controller = new VentasController(crearVentaUC);
 export const ventasRoutes = Router();
 
 ventasRoutes.post('/', authMiddleware, validateBody(crearVentaSchema), controller.crearVenta);
+
+/** Anula factura y bonos asociados (brief: anulación automática del bono). Solo administrador. */
+ventasRoutes.patch('/:numero/anular', authMiddleware, async (req, res, next) => {
+  try {
+    if (req.user?.rol !== 'administrador') return res.status(403).json({ error: 'Solo administrador' });
+    const numero = String(req.params.numero || '').trim();
+    if (!numero) return res.status(400).json({ error: 'Número requerido' });
+    try {
+      await pool.execute("UPDATE ventas SET estado = 'anulada' WHERE numero = ?", [numero]);
+    } catch {
+      /* columna estado opcional */
+    }
+    await pool.execute(
+      "UPDATE bonos SET estado = 'anulado', saldo_restante = 0 WHERE factura_origen = ? AND estado IN ('vigente','caucado','disponible')",
+      [numero],
+    );
+    try {
+      await pool.execute('DELETE FROM facturas_mock WHERE numero = ?', [numero]);
+    } catch {
+      /* */
+    }
+    return res.json({ ok: true, mensaje: 'Factura anulada y bonos revocados' });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 ventasRoutes.get('/config/compra-minima', authMiddleware, async (_req, res, next) => {
   try {
@@ -48,14 +75,21 @@ ventasRoutes.get('/ultima-por-cedula/:cedula', authMiddleware, async (req, res, 
         presentaciones_detalle: string | null;
       })[]
     >(
-      'SELECT numero, fecha, cedula, nombre_cliente, valor, total_huevos, presentaciones_detalle FROM ventas WHERE cedula = ? ORDER BY created_at DESC LIMIT 1',
+      `SELECT numero,
+              DATE_FORMAT(fecha, '%Y-%m-%d') as fecha,
+              cedula, nombre_cliente, valor, total_huevos, presentaciones_detalle
+       FROM ventas
+       WHERE cedula = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [cedula]
     );
     const row = rows?.[0];
     if (!row) return res.status(404).json({ error: 'No hay ventas registradas con esta cédula' });
+    const fechaFactura = facturaYmdFromStored(row.fecha) ?? '';
     return res.json({
       numeroFactura: row.numero,
-      fechaFactura: row.fecha,
+      fechaFactura,
       cedulaCliente: row.cedula,
       nombreCliente: row.nombre_cliente,
       valorTotal: row.valor,
@@ -81,11 +115,16 @@ ventasRoutes.get('/por-numero/:numero', authMiddleware, async (req, res, next) =
         presentaciones_detalle: string | null;
       })[]
     >(
-      'SELECT numero, fecha, cedula, nombre_cliente, valor, total_huevos, presentaciones_detalle FROM ventas WHERE numero = ?',
+      `SELECT numero,
+              DATE_FORMAT(fecha, '%Y-%m-%d') as fecha,
+              cedula, nombre_cliente, valor, total_huevos, presentaciones_detalle
+       FROM ventas
+       WHERE numero = ?`,
       [numero]
     );
     const row = rows?.[0];
     if (!row) return res.status(404).json({ error: 'Factura no encontrada' });
+    const fechaFactura = facturaYmdFromStored(row.fecha) ?? '';
 
     const [mockRows] = await pool.execute<(RowDataPacket & { one: number })[]>(
       'SELECT 1 as one FROM facturas_mock WHERE numero = ?',
@@ -98,7 +137,7 @@ ventasRoutes.get('/por-numero/:numero', authMiddleware, async (req, res, next) =
 
     return res.json({
       numeroFactura: row.numero,
-      fechaFactura: row.fecha,
+      fechaFactura,
       cedulaCliente: row.cedula,
       nombreCliente: row.nombre_cliente,
       valorTotal: row.valor,

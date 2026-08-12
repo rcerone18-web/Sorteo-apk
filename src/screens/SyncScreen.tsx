@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView
 import { useSync } from '../context/SyncContext';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeProvider';
+import { getApiBaseUrl } from '../config';
 
 export default function SyncScreen() {
   const { logout } = useAuth();
@@ -47,6 +48,12 @@ export default function SyncScreen() {
       >
         <Text style={styles.refreshText}>Actualizar estado</Text>
       </TouchableOpacity>
+      <Text style={styles.urlHint} selectable>
+        API configurada: {getApiBaseUrl()}
+      </Text>
+      <Text style={styles.hintSmall}>
+        «En línea» solo indica internet en el dispositivo. La sincronización necesita alcanzar el API (servidor en marcha). La URL por defecto se elige sola en desarrollo; si guardaste una manual en el login, tiene prioridad.
+      </Text>
       <TouchableOpacity
         style={[
           styles.syncButton,
@@ -113,6 +120,8 @@ const styles = StyleSheet.create({
   pendientesValue: { fontSize: 18, fontWeight: '600', color: '#334155' },
   refreshBtn: { padding: 12, marginBottom: 8 },
   refreshText: { color: '#2563eb', fontSize: 16 },
+  urlHint: { fontSize: 12, color: '#475569', marginBottom: 8, marginTop: 4 },
+  hintSmall: { fontSize: 12, color: '#64748b', lineHeight: 18, marginBottom: 8 },
   syncButton: { backgroundColor: '#2563eb', borderRadius: 10, padding: 18, alignItems: 'center', marginTop: 8 },
   buttonDisabled: { opacity: 0.6 },
   syncButtonText: { color: '#fff', fontSize: 18, fontWeight: '600' },

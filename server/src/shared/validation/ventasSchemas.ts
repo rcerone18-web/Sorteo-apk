@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const ventaItemSchema = z.object({
   presentacion: z.string().min(1),
   cantidad: z.number().int().positive(),
+  precioUnitario: z.number().nonnegative().optional(),
+  subtotal: z.number().nonnegative().optional(),
 });
 
 export const crearVentaSchema = z.object({

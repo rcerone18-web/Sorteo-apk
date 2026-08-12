@@ -2,42 +2,160 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.participacionesRoutes = void 0;
 const express_1 = require("express");
-const crypto_1 = require("crypto");
 const authMiddleware_1 = require("../middlewares/authMiddleware");
 const mysqlClient_1 = require("../../../infrastructure/database/mysqlClient");
 const _helpers_1 = require("./_helpers");
+const ejecutarParticipacion_1 = require("../../../domain/sorteo/ejecutarParticipacion");
+const dbCompat_1 = require("../../../domain/sorteo/dbCompat");
+const facturasMock_1 = require("../../../domain/sorteo/facturasMock");
+const resolveCampaign_1 = require("../../../domain/campaign/resolveCampaign");
+const valorElegible_1 = require("../../../domain/campaign/valorElegible");
+const participacionMismoDia_1 = require("../../../shared/date/participacionMismoDia");
 exports.participacionesRoutes = (0, express_1.Router)();
+async function loadFacturaMockValidar(numero) {
+    try {
+        const [rows] = await mysqlClient_1.pool.execute(`SELECT numero,
+              DATE_FORMAT(fecha, '%Y-%m-%d') as fecha,
+              valor, valor_elegible
+       FROM facturas_mock WHERE numero = ?`, [numero]);
+        return rows?.[0];
+    }
+    catch (e) {
+        if (!(0, dbCompat_1.isSchemaMismatchError)(e))
+            throw e;
+        const [rows] = await mysqlClient_1.pool.execute(`SELECT numero,
+              DATE_FORMAT(fecha, '%Y-%m-%d') as fecha,
+              valor
+       FROM facturas_mock WHERE numero = ?`, [numero]);
+        const r = rows?.[0];
+        return r ? { ...r, valor_elegible: null } : undefined;
+    }
+}
+async function loadVentaValidar(numero) {
+    try {
+        const [rows] = await mysqlClient_1.pool.execute(`SELECT cedula, nombre_cliente, presentaciones_detalle,
+              DATE_FORMAT(fecha, '%Y-%m-%d') as fecha,
+              estado, valor, valor_elegible
+       FROM ventas WHERE numero = ?`, [numero]);
+        return rows?.[0];
+    }
+    catch (e) {
+        if (!(0, dbCompat_1.isSchemaMismatchError)(e))
+            throw e;
+        const [rows] = await mysqlClient_1.pool.execute(`SELECT cedula, nombre_cliente, presentaciones_detalle,
+              DATE_FORMAT(fecha, '%Y-%m-%d') as fecha,
+              valor
+       FROM ventas WHERE numero = ?`, [numero]);
+        const r = rows?.[0];
+        return r ? { ...r, estado: 'emitida', valor_elegible: null } : undefined;
+    }
+}
 // GET /api/participaciones/validar-factura/:numero
 exports.participacionesRoutes.get('/validar-factura/:numero', authMiddleware_1.authMiddleware, async (req, res, next) => {
     try {
         const { numero } = req.params;
-        const [mockRows] = await mysqlClient_1.pool.execute('SELECT numero, fecha, valor FROM facturas_mock WHERE numero = ?', [numero]);
-        const enMock = mockRows?.[0];
-        if (!enMock)
-            return res.status(404).json({ error: 'Factura no encontrada o no participa (redimió bono)' });
+        const venta = await loadVentaValidar(numero);
+        if (!venta) {
+            return res.status(404).json({
+                error: 'No existe una venta con este número en el servidor. Revisa el número o sincroniza si la factura quedó solo en el dispositivo.',
+            });
+        }
         const [yaPart] = await mysqlClient_1.pool.execute('SELECT 1 as one FROM participaciones WHERE factura_numero = ?', [numero]);
         if ((yaPart?.length ?? 0) > 0)
             return res.status(400).json({ error: 'Esta factura ya participó en el sorteo' });
-        const [ventaRows] = await mysqlClient_1.pool.execute('SELECT cedula, nombre_cliente, presentaciones_detalle FROM ventas WHERE numero = ?', [numero]);
-        const venta = ventaRows?.[0];
+        if (venta.estado && venta.estado !== 'emitida') {
+            return res.status(400).json({ error: 'La factura no está disponible para sorteo' });
+        }
+        let enMock = await loadFacturaMockValidar(numero);
+        if (!enMock) {
+            if (await (0, facturasMock_1.ventaTieneRedencionBono)(mysqlClient_1.pool, numero)) {
+                return res.status(404).json({
+                    error: 'Esta factura no participa en el sorteo porque incluyó canje o descuento con bono.',
+                });
+            }
+            const valorNum = Number(venta.valor);
+            const ve = venta.valor_elegible != null ? Number(venta.valor_elegible) : valorNum;
+            const fechaYmd = (0, participacionMismoDia_1.facturaYmdFromStored)(venta.fecha);
+            if (!fechaYmd) {
+                return res.status(400).json({ error: 'Fecha de factura inválida en el registro de venta' });
+            }
+            await (0, facturasMock_1.insertFacturaMockFromVenta)(mysqlClient_1.pool, {
+                numero,
+                fecha: fechaYmd,
+                valor: valorNum,
+                valorElegible: ve,
+            });
+            enMock = await loadFacturaMockValidar(numero);
+        }
+        if (!enMock) {
+            return res.status(404).json({ error: 'No se pudo habilitar la factura para el sorteo.' });
+        }
+        const fechaYmd = (0, participacionMismoDia_1.facturaYmdFromStored)(venta?.fecha ?? enMock.fecha);
+        if (!fechaYmd) {
+            return res.status(400).json({ error: 'No se pudo leer la fecha de emisión de la factura' });
+        }
+        if (fechaYmd !== (0, participacionMismoDia_1.todayYmdAmericaBogota)()) {
+            return res.status(400).json({ error: 'La participación solo es válida el mismo día de emisión de la factura' });
+        }
         let listPresentaciones = [];
+        let campaign = null;
         try {
-            const [cfgRows] = await mysqlClient_1.pool.execute('SELECT valor FROM config_sorteo WHERE clave = ?', ['presentaiones_para_participar']);
-            listPresentaciones = JSON.parse(cfgRows?.[0]?.valor || '[]');
+            campaign = await (0, resolveCampaign_1.resolveCampaignForParticipation)(mysqlClient_1.pool, req.user?.usuario ?? '', req.user?.rol);
         }
         catch {
-            listPresentaciones = [];
+            campaign = null;
         }
-        if (!(0, _helpers_1.ventaPuedeParticipar)(venta?.presentaciones_detalle || '[]', listPresentaciones)) {
+        if (!campaign && (0, resolveCampaign_1.isCampaignStrictMode)() && (await (0, resolveCampaign_1.hasAnyActiveCampaign)(mysqlClient_1.pool))) {
             return res.status(403).json({
-                error: 'Esta factura no cumple con las presentaciones requeridas para participar en el sorteo',
+                error: 'No tienes una campaña promocional asignada. El administrador debe autorizarte en Campañas → Usuarios autorizados.',
+                code: 'CAMPAIGN_NOT_ASSIGNED',
+            });
+        }
+        if (campaign) {
+            try {
+                listPresentaciones = JSON.parse(campaign.refsElegiblesJson || '[]');
+            }
+            catch {
+                listPresentaciones = [];
+            }
+        }
+        else {
+            const legacy = await (0, resolveCampaign_1.loadLegacyConfigSorteo)(mysqlClient_1.pool);
+            listPresentaciones = legacy.presentacionesParticipan || [];
+        }
+        if (!(0, _helpers_1.ventaPuedeParticipar)(venta?.presentaciones_detalle || '[]', Array.isArray(listPresentaciones) ? listPresentaciones : [])) {
+            return res.status(403).json({
+                error: 'Esta factura no cumple con las referencias requeridas para participar en el sorteo',
                 presentacionesRequeridas: Array.isArray(listPresentaciones) ? listPresentaciones : [],
             });
         }
+        // Mínimo por subtotal de referencias seleccionadas (legacy, editable): solo aplica si hay refs configuradas y no hay campaña.
+        if (!campaign) {
+            const legacy = await (0, resolveCampaign_1.loadLegacyConfigSorteo)(mysqlClient_1.pool);
+            const minRefs = legacy.minSubtotalRefsParticipar ?? 0;
+            const refs = Array.isArray(listPresentaciones) ? listPresentaciones.map(String) : [];
+            if (refs.length > 0 && minRefs > 0) {
+                try {
+                    const pres = JSON.parse(venta?.presentaciones_detalle || '[]');
+                    const ve = Array.isArray(pres) ? (0, valorElegible_1.calcularValorElegible)(pres, refs, Number(enMock.valor)) : 0;
+                    if (ve < minRefs) {
+                        return res.status(400).json({
+                            error: 'El subtotal de referencias seleccionadas no alcanza el mínimo para participar',
+                            minimoReferencias: minRefs,
+                            subtotalReferencias: ve,
+                        });
+                    }
+                }
+                catch {
+                    return res.status(400).json({ error: 'No se pudo validar el subtotal por referencias' });
+                }
+            }
+        }
         return res.json({
             numero: enMock.numero,
-            fecha: enMock.fecha,
+            fecha: fechaYmd,
             valor: enMock.valor,
+            valorElegible: enMock.valor_elegible != null ? Number(enMock.valor_elegible) : Number(enMock.valor),
             cedula: venta?.cedula || '',
             nombreCliente: venta?.nombre_cliente || '',
         });
@@ -57,19 +175,22 @@ exports.participacionesRoutes.get('/', authMiddleware_1.authMiddleware, async (r
         const clienteQ = (cliente && String(cliente).trim()) || '';
         const facturaQ = (factura && String(factura).trim()) || '';
         const estadoQ = (estado && String(estado).trim().toLowerCase()) || '';
-        let sql = `
+        // Algunas BDs legacy no tienen: p.valor_elegible, p.probabilidad_utilizada (migración 002 no aplicada).
+        let selectCols = `
       SELECT p.id, p.factura_numero as facturaNumero, p.fecha_factura as fechaFactura, p.cedula, p.nombre_cliente as nombreCliente,
-             p.valor_total as valorTotal, p.consentimiento, p.fecha_registro as fechaRegistro, p.usuario_registro as usuarioRegistro
+             p.valor_total as valorTotal, p.consentimiento, p.fecha_registro as fechaRegistro, p.usuario_registro as usuarioRegistro,
+             p.valor_elegible as valorElegible, p.probabilidad_utilizada as probabilidadUtilizada
       FROM participaciones p`;
         const params = [];
-        if (estadoQ === 'disponible') {
-            sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND b.estado = 'disponible' AND (b.fecha_vencimiento IS NULL OR b.fecha_vencimiento >= NOW())`;
+        let sql = selectCols;
+        if (estadoQ === 'disponible' || estadoQ === 'vigente') {
+            sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND b.estado IN ('vigente','disponible','caucado') AND (b.fecha_vencimiento IS NULL OR b.fecha_vencimiento >= NOW())`;
         }
         else if (estadoQ === 'redimido') {
             sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND b.estado = 'redimido'`;
         }
         else if (estadoQ === 'vencido') {
-            sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND (b.estado = 'vencido' OR (b.estado = 'disponible' AND b.fecha_vencimiento < NOW()))`;
+            sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND (b.estado = 'vencido' OR (b.estado IN ('vigente','disponible') AND b.fecha_vencimiento < NOW()))`;
         }
         sql += ' WHERE 1=1';
         if (desdeD) {
@@ -89,8 +210,46 @@ exports.participacionesRoutes.get('/', authMiddleware_1.authMiddleware, async (r
             sql += ` AND p.factura_numero LIKE ?`;
         }
         sql += ' ORDER BY p.fecha_registro DESC LIMIT 500';
-        const [rows] = await mysqlClient_1.pool.execute(sql, params);
-        return res.json(rows);
+        try {
+            const [rows] = await mysqlClient_1.pool.execute(sql, params);
+            return res.json(rows);
+        }
+        catch (e) {
+            if (!(0, dbCompat_1.isSchemaMismatchError)(e))
+                throw e;
+            // Fallback: sin columnas nuevas.
+            sql = `
+        SELECT p.id, p.factura_numero as facturaNumero, p.fecha_factura as fechaFactura, p.cedula, p.nombre_cliente as nombreCliente,
+               p.valor_total as valorTotal, p.consentimiento, p.fecha_registro as fechaRegistro, p.usuario_registro as usuarioRegistro
+        FROM participaciones p`;
+            if (estadoQ === 'disponible' || estadoQ === 'vigente') {
+                sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND b.estado IN ('vigente','disponible','caucado') AND (b.fecha_vencimiento IS NULL OR b.fecha_vencimiento >= NOW())`;
+            }
+            else if (estadoQ === 'redimido') {
+                sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND b.estado = 'redimido'`;
+            }
+            else if (estadoQ === 'vencido') {
+                sql += ` INNER JOIN bonos b ON b.participacion_id = p.id AND (b.estado = 'vencido' OR (b.estado IN ('vigente','disponible') AND b.fecha_vencimiento < NOW()))`;
+            }
+            sql += ' WHERE 1=1';
+            if (desdeD)
+                sql += ` AND DATE(p.fecha_registro) >= DATE(?)`;
+            if (hastaD)
+                sql += ` AND DATE(p.fecha_registro) <= DATE(?)`;
+            if (clienteQ)
+                sql += ` AND (p.nombre_cliente LIKE ? OR p.cedula LIKE ?)`;
+            if (facturaQ)
+                sql += ` AND p.factura_numero LIKE ?`;
+            sql += ' ORDER BY p.fecha_registro DESC LIMIT 500';
+            const [rows2] = await mysqlClient_1.pool.execute(sql, params);
+            // Homologar shape para el frontend.
+            const out = rows2.map((r) => ({
+                ...r,
+                valorElegible: null,
+                probabilidadUtilizada: null,
+            }));
+            return res.json(out);
+        }
     }
     catch (err) {
         return next(err);
@@ -99,79 +258,46 @@ exports.participacionesRoutes.get('/', authMiddleware_1.authMiddleware, async (r
 // POST /api/participaciones
 exports.participacionesRoutes.post('/', authMiddleware_1.authMiddleware, async (req, res, next) => {
     try {
-        const { facturaNumero, fechaFactura, cedula, nombreCliente, valorTotal, consentimiento } = (req.body ?? {});
+        const body = (req.body ?? {});
+        const { facturaNumero, fechaFactura, cedula, nombreCliente, valorTotal, consentimiento, idempotencyKey } = body;
         if (!facturaNumero || !consentimiento) {
             return res.status(400).json({ error: 'facturaNumero y consentimiento requeridos' });
         }
-        const [mockRows] = await mysqlClient_1.pool.execute('SELECT numero, fecha, valor FROM facturas_mock WHERE numero = ?', [String(facturaNumero)]);
-        const enMock = mockRows?.[0];
-        if (!enMock)
-            return res.status(404).json({ error: 'Factura no encontrada o no participa' });
-        const [yaPart] = await mysqlClient_1.pool.execute('SELECT 1 as one FROM participaciones WHERE factura_numero = ?', [String(facturaNumero)]);
-        if ((yaPart?.length ?? 0) > 0)
-            return res.status(400).json({ error: 'Esta factura ya participó en el sorteo' });
-        const [ventaRows] = await mysqlClient_1.pool.execute('SELECT presentaciones_detalle FROM ventas WHERE numero = ?', [String(facturaNumero)]);
-        const venta = ventaRows?.[0];
-        let listPresentaciones = [];
-        try {
-            const [cfgRows] = await mysqlClient_1.pool.execute('SELECT valor FROM config_sorteo WHERE clave = ?', ['presentaiones_para_participar']);
-            listPresentaciones = JSON.parse(cfgRows?.[0]?.valor || '[]');
-        }
-        catch {
-            listPresentaciones = [];
-        }
-        if (!(0, _helpers_1.ventaPuedeParticipar)(venta?.presentaciones_detalle || '[]', listPresentaciones)) {
-            return res.status(403).json({
-                error: 'Esta factura no cumple con las presentaciones requeridas para participar en el sorteo',
-                presentacionesRequeridas: Array.isArray(listPresentaciones) ? listPresentaciones : [],
-            });
-        }
-        const [probRows] = await mysqlClient_1.pool.execute('SELECT valor FROM config_sorteo WHERE clave = ?', ['probabilidad_ganar']);
-        let prob = parseFloat(probRows?.[0]?.valor || '0.1');
-        if (Number.isNaN(prob))
-            prob = 0.1;
-        if (prob > 1)
-            prob = prob / 100;
-        prob = Math.max(0, Math.min(1, prob));
-        const [minRows] = await mysqlClient_1.pool.execute('SELECT valor FROM config_sorteo WHERE clave = ?', ['compra_minima']);
-        const compraMinima = parseFloat(minRows?.[0]?.valor || '100000');
-        const gana = Math.random() < prob ? 1 : 0;
-        const participacionId = (0, crypto_1.randomUUID)();
-        const sorteoId = (0, crypto_1.randomUUID)();
-        const fechaFacturaNorm = (0, _helpers_1.toDateOnly)(fechaFactura || enMock.fecha) || (0, _helpers_1.toDateOnly)(new Date());
-        let valorNum = Number(valorTotal ?? enMock.valor);
-        if (!Number.isFinite(valorNum) || valorNum <= 0)
-            valorNum = Number(enMock.valor) || 1;
-        await mysqlClient_1.pool.execute(`INSERT INTO participaciones (id, factura_numero, fecha_factura, cedula, nombre_cliente, valor_total, consentimiento, usuario_registro) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
-            participacionId,
-            String(facturaNumero),
-            fechaFacturaNorm,
-            String(cedula || ''),
-            String(nombreCliente || ''),
-            valorNum,
-            consentimiento ? 1 : 0,
-            req.user?.usuario ?? '',
-        ]);
-        await mysqlClient_1.pool.execute(`INSERT INTO sorteos (id, participacion_id, ganador, usuario) VALUES (?, ?, ?, ?)`, [sorteoId, participacionId, gana, req.user?.usuario ?? '']);
-        let bonoCodigo = null;
-        if (gana === 1) {
-            const bonoId = (0, crypto_1.randomUUID)();
-            bonoCodigo = `BONO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-            const vencimiento = new Date();
-            vencimiento.setMonth(vencimiento.getMonth() + 1);
-            const fechaVencStr = vencimiento.toISOString().slice(0, 19).replace('T', ' ');
-            await mysqlClient_1.pool.execute(`INSERT INTO bonos (id, codigo, factura_origen, cedula, nombre_cliente, valor, fecha_vencimiento, estado, participacion_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'disponible', ?)`, [bonoId, bonoCodigo, String(facturaNumero), String(cedula || ''), String(nombreCliente || ''), valorNum, fechaVencStr, participacionId]);
-        }
+        const result = await (0, ejecutarParticipacion_1.ejecutarParticipacion)(mysqlClient_1.pool, {
+            usuario: req.user?.usuario ?? '',
+            rol: req.user?.rol,
+            facturaNumero: String(facturaNumero),
+            fechaFactura: fechaFactura != null ? String(fechaFactura) : undefined,
+            cedula: cedula != null ? String(cedula) : '',
+            nombreCliente: nombreCliente != null ? String(nombreCliente) : '',
+            valorTotal: Number(valorTotal),
+            consentimiento: Boolean(consentimiento),
+            idempotencyKey: idempotencyKey != null ? String(idempotencyKey) : null,
+        });
         return res.json({
-            gana: gana === 1,
-            codigoBono: gana === 1 ? bonoCodigo : undefined,
-            compraMinimaBono: gana === 1 ? compraMinima : undefined,
-            mensaje: gana === 1
-                ? `¡Felicidades! Bono 50%. Código: ${bonoCodigo}. Compra mínima: $${compraMinima}`
-                : 'Esta vez no ganaste.',
+            gana: result.gana,
+            gano: result.gana,
+            codigoBono: result.codigoBono,
+            compraMinimaBono: result.compraMinimaBono,
+            mensaje: result.mensaje,
+            probabilidadUtilizada: result.probabilidadUtilizada,
+            leyendaFacturaBono: result.leyendaFacturaBono,
+            valorElegible: result.valorElegible,
+            campaignId: result.campaignId,
         });
     }
     catch (err) {
+        const e = err;
+        const status = typeof e.status === 'number' ? e.status : 500;
+        if (e.presentacionesRequeridas) {
+            return res.status(status).json({
+                error: e.message || 'Error',
+                presentacionesRequeridas: e.presentacionesRequeridas,
+            });
+        }
+        if (status !== 500) {
+            return res.status(status).json({ error: e.message || 'Error' });
+        }
         return next(err);
     }
 });

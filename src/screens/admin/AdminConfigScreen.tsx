@@ -14,29 +14,20 @@ import { useAppTheme } from '../../theme/ThemeProvider';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { errorToAlertMessage } from '../../utils/errors';
 
 export default function AdminConfigScreen() {
   const { user } = useAuth();
   const { mode, toggleTheme, theme } = useAppTheme();
-  const [loadingProb, setLoadingProb] = useState(false);
   const [loadingCompra, setLoadingCompra] = useState(false);
+  const [loadingMinRefs, setLoadingMinRefs] = useState(false);
   const [loadingPres, setLoadingPres] = useState(false);
-  const [porcentaje, setPorcentaje] = useState('');
-  const [probabilidad, setProbabilidad] = useState<number | null>(null);
   const [compraMinima, setCompraMinima] = useState('');
   const [compraMinimaVal, setCompraMinimaVal] = useState<number | null>(null);
+  const [minSubtotalRefs, setMinSubtotalRefs] = useState('');
+  const [minSubtotalRefsVal, setMinSubtotalRefsVal] = useState<number | null>(null);
   const [presentaciones, setPresentaciones] = useState<string[]>([]);
   const [presentacionesOpciones] = useState(() => PRESENTACIONES.map((p) => p.nombre));
-
-  const loadProb = useCallback(async () => {
-    try {
-      const r = await api.getConfigProbabilidad();
-      setProbabilidad(r.probabilidad);
-      setPorcentaje(String(r.porcentaje));
-    } catch (e) {
-      Alert.alert('Error', (e as Error).message || 'No se pudo cargar probabilidad');
-    }
-  }, []);
 
   const loadCompra = useCallback(async () => {
     try {
@@ -44,7 +35,7 @@ export default function AdminConfigScreen() {
       setCompraMinimaVal(r.compraMinima);
       setCompraMinima(String(r.compraMinima));
     } catch (e) {
-      Alert.alert('Error', (e as Error).message || 'No se pudo cargar compra mínima');
+      Alert.alert('Error', errorToAlertMessage((e as any)?.response?.data?.error, (e as Error).message || 'No se pudo cargar compra mínima'));
     }
   }, []);
 
@@ -53,37 +44,27 @@ export default function AdminConfigScreen() {
       const r = await api.getConfigPresentacionesParticipar();
       setPresentaciones(r.presentaciones || []);
     } catch (e) {
-      Alert.alert('Error', (e as Error).message || 'No se pudo cargar presentaciones');
+      Alert.alert('Error', errorToAlertMessage((e as any)?.response?.data?.error, (e as Error).message || 'No se pudo cargar presentaciones'));
+    }
+  }, []);
+
+  const loadMinRefs = useCallback(async () => {
+    try {
+      const r = await api.getConfigMinSubtotalRefsParticipar();
+      setMinSubtotalRefsVal(r.minSubtotal);
+      setMinSubtotalRefs(String(r.minSubtotal));
+    } catch (e) {
+      Alert.alert('Error', errorToAlertMessage((e as any)?.response?.data?.error, (e as Error).message || 'No se pudo cargar el minimo por referencias'));
     }
   }, []);
 
   useEffect(() => {
     if (user?.rol === 'administrador') {
-      loadProb();
       loadCompra();
+      loadMinRefs();
       loadPres();
     }
-  }, [user?.rol, loadProb, loadCompra, loadPres]);
-
-  const guardarProbabilidad = async () => {
-    const n = parseFloat(porcentaje);
-    if (isNaN(n) || n < 0 || n > 100) {
-      Alert.alert('Error', 'El porcentaje debe estar entre 0 y 100');
-      return;
-    }
-    setLoadingProb(true);
-    try {
-      await api.putConfigProbabilidad(n);
-      Alert.alert('Guardado', 'Probabilidad actualizada.');
-      loadProb();
-    } catch (e) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-        || (e instanceof Error ? e.message : 'Error');
-      Alert.alert('Error', msg);
-    } finally {
-      setLoadingProb(false);
-    }
-  };
+  }, [user?.rol, loadCompra, loadMinRefs, loadPres]);
 
   const guardarCompraMinima = async () => {
     const n = parseFloat(compraMinima);
@@ -97,9 +78,8 @@ export default function AdminConfigScreen() {
       Alert.alert('Guardado', 'Compra mínima actualizada.');
       loadCompra();
     } catch (e) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-        || (e instanceof Error ? e.message : 'Error');
-      Alert.alert('Error', msg);
+      const raw = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      Alert.alert('Error', errorToAlertMessage(raw, e instanceof Error ? e.message : 'Error'));
     } finally {
       setLoadingCompra(false);
     }
@@ -112,11 +92,29 @@ export default function AdminConfigScreen() {
       Alert.alert('Guardado', 'Presentaciones que pueden participar actualizadas.');
       loadPres();
     } catch (e) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-        || (e instanceof Error ? e.message : 'Error');
-      Alert.alert('Error', msg);
+      const raw = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      Alert.alert('Error', errorToAlertMessage(raw, e instanceof Error ? e.message : 'Error'));
     } finally {
       setLoadingPres(false);
+    }
+  };
+
+  const guardarMinRefs = async () => {
+    const n = parseFloat(minSubtotalRefs);
+    if (isNaN(n) || n < 0) {
+      Alert.alert('Error', 'El minimo debe ser un numero >= 0');
+      return;
+    }
+    setLoadingMinRefs(true);
+    try {
+      await api.putConfigMinSubtotalRefsParticipar(n);
+      Alert.alert('Guardado', 'Minimo por referencias actualizado.');
+      loadMinRefs();
+    } catch (e) {
+      const raw = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      Alert.alert('Error', errorToAlertMessage(raw, e instanceof Error ? e.message : 'Error'));
+    } finally {
+      setLoadingMinRefs(false);
     }
   };
 
@@ -161,21 +159,11 @@ export default function AdminConfigScreen() {
         </View>
       </Card>
 
-      {/* Probabilidad de ganar */}
       <Card style={styles.block}>
-        <Text style={[styles.blockTitle, { color: theme.colors.text }]}>Probabilidad de ganar</Text>
+        <Text style={[styles.blockTitle, { color: theme.colors.text }]}>Probabilidad del sorteo</Text>
         <Text style={[styles.hint, { color: theme.colors.mutedText }]}>
-          Porcentaje (0–100). Ej: 10 = 10% de probabilidad de ganar.
+          Con campaña activa en el servidor, la probabilidad base y el ajuste automático por costos se definen en la campaña (no desde esta app). Solo en escenarios sin campaña o heredados interviene la configuración antigua del servidor; el sorteo offline usa la última configuración descargada.
         </Text>
-        <Input value={porcentaje} onChangeText={setPorcentaje} placeholder="Ej: 10" keyboardType="numeric" />
-        {probabilidad != null && (
-          <Text style={[styles.current, { color: theme.colors.text }]}>
-            Actual: {probabilidad} ({(probabilidad * 100).toFixed(0)}%)
-          </Text>
-        )}
-        <View style={styles.ctaRow}>
-          <Button title="Guardar" onPress={guardarProbabilidad} loading={loadingProb} disabled={loadingProb} variant="primary" />
-        </View>
       </Card>
 
       {/* Compra mínima para usar bono */}
@@ -189,6 +177,23 @@ export default function AdminConfigScreen() {
         )}
         <View style={styles.ctaRow}>
           <Button title="Guardar" onPress={guardarCompraMinima} loading={loadingCompra} disabled={loadingCompra} variant="primary" />
+        </View>
+      </Card>
+
+      {/* Mínimo por referencias para participar */}
+      <Card style={styles.block}>
+        <Text style={[styles.blockTitle, { color: theme.colors.text }]}>Mínimo por referencias para participar (pesos)</Text>
+        <Text style={[styles.hint, { color: theme.colors.mutedText }]}>
+          Aplica solo cuando hay presentaciones seleccionadas. Se calcula sobre el subtotal elegible de esas referencias.
+        </Text>
+        <Input value={minSubtotalRefs} onChangeText={setMinSubtotalRefs} placeholder="Ej: 0" keyboardType="numeric" />
+        {minSubtotalRefsVal != null && (
+          <Text style={[styles.current, { color: theme.colors.text }]}>
+            Actual: ${minSubtotalRefsVal.toLocaleString('es-CO')}
+          </Text>
+        )}
+        <View style={styles.ctaRow}>
+          <Button title="Guardar" onPress={guardarMinRefs} loading={loadingMinRefs} disabled={loadingMinRefs} variant="primary" />
         </View>
       </Card>
 

@@ -11,7 +11,8 @@ exports.configRoutes.get('/sorteo', authMiddleware_1.authMiddleware, async (_req
         const [rows] = await mysqlClient_1.pool.execute('SELECT clave, valor FROM config_sorteo');
         const config = {};
         for (const r of rows) {
-            if (r.clave === 'presentaiones_para_participar') {
+            // Compat: legado tenía un typo ('presentaiones_...'). Aceptar ambas claves.
+            if (r.clave === 'presentaciones_para_participar' || r.clave === 'presentaiones_para_participar') {
                 try {
                     const parsed = JSON.parse(r.valor || '[]');
                     config.presentacionesParticipan = Array.isArray(parsed) ? parsed : [];

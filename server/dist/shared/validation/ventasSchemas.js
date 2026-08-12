@@ -5,6 +5,8 @@ const zod_1 = require("zod");
 exports.ventaItemSchema = zod_1.z.object({
     presentacion: zod_1.z.string().min(1),
     cantidad: zod_1.z.number().int().positive(),
+    precioUnitario: zod_1.z.number().nonnegative().optional(),
+    subtotal: zod_1.z.number().nonnegative().optional(),
 });
 exports.crearVentaSchema = zod_1.z.object({
     fechaFactura: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

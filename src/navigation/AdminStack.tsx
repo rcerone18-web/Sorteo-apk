@@ -7,6 +7,8 @@ import AdminGanadoresScreen from '../screens/admin/AdminGanadoresScreen';
 import AdminBonosScreen from '../screens/admin/AdminBonosScreen';
 import AdminRedencionScreen from '../screens/admin/AdminRedencionScreen';
 import AdminConfigScreen from '../screens/admin/AdminConfigScreen';
+import AdminCampaignsScreen from '../screens/admin/AdminCampaignsScreen';
+import AdminCampaignOperacionesScreen from '../screens/admin/AdminCampaignOperacionesScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -52,6 +54,16 @@ export default function AdminStack() {
         name="AdminConfig"
         component={AdminConfigScreen}
         options={{ title: 'Configuración' }}
+      />
+      <Stack.Screen
+        name="AdminCampaigns"
+        component={AdminCampaignsScreen}
+        options={{ title: 'Campañas' }}
+      />
+      <Stack.Screen
+        name="AdminCampaignOperaciones"
+        component={AdminCampaignOperacionesScreen}
+        options={{ title: 'Guía de operaciones' }}
       />
     </Stack.Navigator>
   );

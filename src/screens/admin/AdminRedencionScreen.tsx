@@ -15,6 +15,7 @@ import type { BonoItem } from '../../types';
 import { useAppTheme } from '../../theme/ThemeProvider';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { errorToAlertMessage } from '../../utils/errors';
 
 export default function AdminRedencionScreen() {
   const { user } = useAuth();
@@ -30,8 +31,8 @@ export default function AdminRedencionScreen() {
       const data = await api.getBonos({ estado: 'disponible' });
       setBonos(data);
     } catch (e) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-        || (e instanceof Error ? e.message : 'Error al cargar');
+      const raw = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      const msg = errorToAlertMessage(raw, e instanceof Error ? e.message : 'Error al cargar');
       Alert.alert('Error', msg);
     } finally {
       setLoading(false);
@@ -63,8 +64,8 @@ export default function AdminRedencionScreen() {
               Alert.alert('Éxito', 'Bono redimido correctamente.');
               load();
             } catch (e) {
-              const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-                || (e instanceof Error ? e.message : 'No se pudo redimir');
+              const raw = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+              const msg = errorToAlertMessage(raw, e instanceof Error ? e.message : 'No se pudo redimir');
               Alert.alert('Error', msg);
             } finally {
               setRedimiendoId(null);

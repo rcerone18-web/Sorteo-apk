@@ -28,6 +28,9 @@ export const SQL = {
       resultado TEXT,
       codigo_bono TEXT,
       compra_minima_bono REAL,
+      idempotency_key TEXT,
+      probabilidad_utilizada REAL,
+      leyenda_factura_bono TEXT,
       sincronizado INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
     );

@@ -17,6 +17,7 @@ import { useAppTheme } from '../../theme/ThemeProvider';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { errorToAlertMessage } from '../../utils/errors';
 
 function formatDate(s: string) {
   if (!s) return '';
@@ -47,8 +48,8 @@ export default function AdminParticipacionesScreen() {
       const data = await api.getParticipacionesList(params);
       setList(data);
     } catch (e) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-        || (e instanceof Error ? e.message : 'Error al cargar');
+      const raw = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      const msg = errorToAlertMessage(raw, e instanceof Error ? e.message : 'Error al cargar');
       Alert.alert('Error', msg);
     } finally {
       setLoading(false);

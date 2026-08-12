@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS config_sorteo (
 INSERT IGNORE INTO config_sorteo (clave, valor) VALUES
   ('probabilidad_ganar', '0.1'),
   ('compra_minima', '100000'),
+  ('min_subtotal_refs_participar', '0'),
   ('presentaiones_para_participar', '[]'),
   ('requiere_extra_o_aa', '0');
 

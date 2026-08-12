@@ -7,7 +7,7 @@ import { useAppTheme } from '../theme/ThemeProvider';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
-import { getApiBaseUrl, setApiBaseUrlOverride } from '../config';
+import { getApiBaseUrl, resolveAutoApiBaseUrl, setApiBaseUrlOverride } from '../config';
 import * as api from '../api/client';
 
 export default function LoginScreen() {
@@ -46,6 +46,12 @@ export default function LoginScreen() {
     await setApiBaseUrlOverride(normalizada);
     setUrlServidor(normalizada);
     Alert.alert('Guardado', 'URL actualizada. Intenta iniciar sesión de nuevo.');
+  };
+
+  const usarUrlAutomatica = async () => {
+    await setApiBaseUrlOverride(null);
+    setUrlServidor(resolveAutoApiBaseUrl());
+    Alert.alert('Listo', 'Se eliminó la URL manual. La app volverá a calcular host y puerto automáticamente.');
   };
 
   const probarConexion = async () => {
@@ -110,9 +116,12 @@ export default function LoginScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => setShowConexion(false)}>
           <Pressable style={[styles.modalContent, { backgroundColor: theme.colors.card }]} onPress={(e) => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Configurar servidor</Text>
-            <Text style={[styles.modalHint, { color: theme.colors.mutedText }]}>URL del servidor (ej: http://192.168.100.210:3000)</Text>
+            <Text style={[styles.modalHint, { color: theme.colors.mutedText }]}>
+              En desarrollo la URL se calcula sola: misma IP que Metro (exp://…:8081) y puerto del API (3000 por defecto).
+              Emulador Android → 10.0.2.2. Si cambias de red, usa «Usar detección automática».
+            </Text>
             <Input
-              placeholder="http://192.168.100.210:3000"
+              placeholder={resolveAutoApiBaseUrl()}
               value={urlServidor}
               onChangeText={setUrlServidor}
               autoCapitalize="none"
@@ -121,6 +130,9 @@ export default function LoginScreen() {
             <View style={styles.modalButtons}>
               <Button title="Probar conexión" onPress={probarConexion} variant="secondary" loading={probando} disabled={probando} />
               <Button title="Guardar" onPress={guardarUrl} variant="primary" />
+            </View>
+            <View style={{ marginTop: 12 }}>
+              <Button title="Usar detección automática" onPress={usarUrlAutomatica} variant="secondary" />
             </View>
             <Pressable onPress={() => setShowConexion(false)}>
               <Text style={[styles.linkConexion, { color: theme.colors.mutedText }]}>Cerrar</Text>

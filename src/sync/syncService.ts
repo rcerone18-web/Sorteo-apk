@@ -10,7 +10,18 @@ import {
 import * as api from '../api/client';
 import type { Factura, ItemFactura } from '../types';
 
+function mensajeRedSinRespuesta(): string {
+  return (
+    'sin respuesta del servidor (revisa que el API esté en marcha y la URL en inicio de sesión → Problemas de conexión; ' +
+    'en emulador Android suele funcionar http://10.0.2.2:PUERTO si el servidor corre en tu PC)'
+  );
+}
+
 function mensajeErrorParticipacion(e: unknown, numeroFacturaMostrar: string): string {
+  if (axios.isAxiosError(e) && !e.response) {
+    const base = e.message === 'Network Error' || e.code === 'ERR_NETWORK' ? mensajeRedSinRespuesta() : e.message;
+    return `Participación factura ${numeroFacturaMostrar}: ${base}`;
+  }
   if (axios.isAxiosError(e) && e.response) {
     const status = e.response.status;
     const data = e.response.data as { error?: string; presentacionesRequeridas?: string[] } | undefined;
@@ -56,7 +67,11 @@ export async function sincronizar(): Promise<SyncResult> {
       await marcarVentaSincronizada(v.numeroFactura, res.numero);
       resultado.ventasEnviadas++;
     } catch (e) {
-      resultado.errores.push(`Venta ${v.numeroFactura}: ${e instanceof Error ? e.message : String(e)}`);
+      let detalle = e instanceof Error ? e.message : String(e);
+      if (axios.isAxiosError(e) && !e.response && (e.message === 'Network Error' || e.code === 'ERR_NETWORK')) {
+        detalle = mensajeRedSinRespuesta();
+      }
+      resultado.errores.push(`Venta ${v.numeroFactura}: ${detalle}`);
     }
   }
 
@@ -82,6 +97,7 @@ export async function sincronizar(): Promise<SyncResult> {
         nombreCliente: p.nombreCliente,
         valorTotal: p.valorTotal,
         consentimientoDatos: p.consentimientoDatos,
+        idempotencyKey: p.idempotencyKey,
       });
       if (p.id != null) await marcarParticipacionSincronizada(p.id);
       resultado.participacionesEnviadas++;

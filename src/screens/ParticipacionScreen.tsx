@@ -18,11 +18,14 @@ import * as db from '../db';
 import * as api from '../api/client';
 import { isOnline } from '../sync/syncService';
 import { ejecutarSorteoLocal } from '../utils/sorteo';
+import { randomUUID } from '../utils/uuid';
 import { guardarConfigCache, obtenerConfigCache } from '../db';
 import { useAppTheme } from '../theme/ThemeProvider';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { errorToAlertMessage } from '../utils/errors';
+import { localCalendarYmd, toCalendarYmdFromApi } from '../utils/localDate';
 
 const currencyFormatter = new Intl.NumberFormat('es-CO', {
   style: 'currency',
@@ -91,6 +94,8 @@ export default function ParticipacionScreen() {
     compraMinimaBono?: number;
     mensaje: string;
     offline: boolean;
+    leyendaFacturaBono?: string;
+    probabilidadUtilizada?: number;
   } | null>(null);
 
   const spinValue = useRef(new Animated.Value(0)).current;
@@ -121,7 +126,7 @@ export default function ParticipacionScreen() {
       if (online) {
         const v = await api.getVentaPorNumero(numero.trim());
         if (v) {
-          setFechaFactura(v.fechaFactura);
+          setFechaFactura(toCalendarYmdFromApi(v.fechaFactura));
           setCedulaCliente(v.cedulaCliente);
           setNombreCliente(v.nombreCliente);
           setValorTotal(formatCopNoDecimals(v.valorTotal));
@@ -134,7 +139,7 @@ export default function ParticipacionScreen() {
       } else {
         const v = await db.ventaPorNumero(numero.trim());
         if (v) {
-          setFechaFactura(v.fechaFactura);
+          setFechaFactura(toCalendarYmdFromApi(v.fechaFactura));
           setCedulaCliente(v.cedulaCliente);
           setNombreCliente(v.nombreCliente);
           setValorTotal(formatCopNoDecimals(v.valorTotal));
@@ -180,6 +185,7 @@ export default function ParticipacionScreen() {
     setPendingNavParams(null);
     setRouletteDone(false);
     setRouletteText('Validando...');
+    const idempotencyKey = randomUUID();
     try {
       const online = await isOnline();
       const tabNav = navigation.getParent();
@@ -187,29 +193,29 @@ export default function ParticipacionScreen() {
       if (online) {
         setRouletteText('Validando factura...');
         try {
-          const validada = await api.validarFactura(numeroFactura.trim());
-          if (!validada) {
-            setShowRoulette(false);
-            Alert.alert('Error', 'Factura no encontrada o no participa (redimió bono o ya participó).');
-            return;
-          }
+          await api.validarFactura(numeroFactura.trim());
         } catch (validarError: unknown) {
           setShowRoulette(false);
           const res = (validarError as { response?: { data?: { error?: string; presentacionesRequeridas?: string[] }; status?: number } })?.response;
-          const msg = res?.status === 403 && Array.isArray(res?.data?.presentacionesRequeridas) && res.data.presentacionesRequeridas.length > 0
-            ? `No puedes participar porque esta factura no incluye ninguna de las referencias seleccionadas.\n\nPara participar debes comprar al menos una de estas presentaciones:\n${res.data.presentacionesRequeridas.join(', ')}`
-            : res?.data?.error || (validarError instanceof Error ? (validarError as Error).message : 'No se puede participar con esta factura.');
+          const msg =
+            res?.status === 403 && Array.isArray(res?.data?.presentacionesRequeridas) && res.data.presentacionesRequeridas.length > 0
+              ? `No puedes participar porque esta factura no incluye ninguna de las referencias seleccionadas.\n\nPara participar debes comprar al menos una de estas presentaciones:\n${res.data.presentacionesRequeridas.join(', ')}`
+              : errorToAlertMessage(
+                  res?.data?.error,
+                  validarError instanceof Error ? validarError.message : 'No se puede participar con esta factura.'
+                );
           Alert.alert('Error', msg);
           return;
         }
         setRouletteText('Ejecutando sorteo...');
         const resultado = await api.crearParticipacion({
           numeroFactura: numeroFactura.trim(),
-          fechaFactura: fechaFactura || new Date().toISOString().slice(0, 10),
+          fechaFactura: fechaFactura || localCalendarYmd(),
           cedulaCliente: cedulaCliente.trim(),
           nombreCliente: nombreCliente.trim(),
           valorTotal: valor,
           consentimientoDatos: consentimiento,
+          idempotencyKey,
         });
         const gano = resultado.gana ?? resultado.gano ?? false;
         runSpinTo(gano);
@@ -219,6 +225,8 @@ export default function ParticipacionScreen() {
           compraMinimaBono: resultado.compraMinimaBono,
           mensaje: resultado.mensaje,
           offline: false,
+          leyendaFacturaBono: resultado.leyendaFacturaBono,
+          probabilidadUtilizada: resultado.probabilidadUtilizada,
         };
         setPendingNavParams(nav);
       } else {
@@ -238,7 +246,7 @@ export default function ParticipacionScreen() {
         runSpinTo(gano);
         await db.guardarParticipacionLocal({
           numeroFactura: numeroFactura.trim(),
-          fechaFactura: fechaFactura || new Date().toISOString().slice(0, 10),
+          fechaFactura: fechaFactura || localCalendarYmd(),
           cedulaCliente: cedulaCliente.trim(),
           nombreCliente: nombreCliente.trim(),
           valorTotal: valor,
@@ -246,6 +254,7 @@ export default function ParticipacionScreen() {
           resultado: gano ? 'gano' : 'no_gano',
           codigoBono: resultado.codigoBono,
           compraMinimaBono: resultado.compraMinimaBono,
+          idempotencyKey,
         });
         await refrescarPendientes();
         const nav = {
@@ -254,24 +263,20 @@ export default function ParticipacionScreen() {
           compraMinimaBono: resultado.compraMinimaBono,
           mensaje: resultado.mensaje,
           offline: true,
+          leyendaFacturaBono: 'ESTA FACTURA CONTIENE UN BONO',
         };
         setPendingNavParams(nav);
       }
     } catch (e: unknown) {
       setShowRoulette(false);
       const res = (e as { response?: { data?: { error?: unknown; presentacionesRequeridas?: string[] }; status?: number } })?.response;
-      const serverError = res?.data?.error;
-      const normalizedServerError =
-        typeof serverError === 'string'
-          ? serverError
-          : serverError && typeof serverError === 'object' && 'message' in serverError
-            ? String((serverError as any).message)
-            : undefined;
-
       const msg =
         res?.status === 403 && Array.isArray(res?.data?.presentacionesRequeridas) && res.data.presentacionesRequeridas.length > 0
           ? `No puedes participar porque esta factura no incluye ninguna de las referencias seleccionadas.\n\nPara participar debes comprar al menos una de estas presentaciones:\n${res.data.presentacionesRequeridas.join(', ')}`
-          : normalizedServerError || (e instanceof Error ? (e as Error).message : 'No se pudo registrar la participación');
+          : errorToAlertMessage(
+              res?.data?.error,
+              e instanceof Error ? e.message : 'No se pudo registrar la participación'
+            );
       Alert.alert('Error', msg);
     } finally {
       setLoadingSubmit(false);
@@ -371,9 +376,19 @@ export default function ParticipacionScreen() {
                 onPress={() => {
                   setShowRoulette(false);
                   setPendingNavParams(null);
-                  const tabNav = navigation.getParent();
-                  const rootNav = (tabNav as { getParent?: () => { navigate: (a: string, b?: object) => void } } | undefined)?.getParent?.();
-                  rootNav?.navigate('Main', { screen: 'Facturacion' });
+                  // Navegar a Ventas (Facturación) a través del stack raíz:
+                  // Participacion está dentro de Tabs (Main) que a su vez está dentro del Stack raíz.
+                  const navAny = navigation as unknown as {
+                    navigate?: (name: string, params?: any) => void;
+                    getParent?: () => { navigate?: (name: string, params?: any) => void } | undefined;
+                  };
+                  const rootStack = navAny.getParent?.();
+                  // Preferido: Stack raíz → Main → Tab Facturacion (evita warning de rutas desconocidas).
+                  rootStack?.navigate?.('Main', { screen: 'Facturacion' });
+                  // Fallback (si por alguna razón no hay parent): navegar en tabs.
+                  if (!rootStack?.navigate) {
+                    navAny.navigate?.('Facturacion');
+                  }
                 }}
                 disabled={!rouletteDone}
               >
@@ -404,6 +419,8 @@ export default function ParticipacionScreen() {
                       compraMinimaBono: pendingNavParams.compraMinimaBono ?? undefined,
                       mensaje: pendingNavParams.mensaje ?? '',
                       offline: !!pendingNavParams.offline,
+                      leyendaFacturaBono: pendingNavParams.leyendaFacturaBono,
+                      probabilidadUtilizada: pendingNavParams.probabilidadUtilizada,
                     };
                     setShowRoulette(false);
                     // Preferir bubbling de React Navigation; fallback a root navigator si hace falta
@@ -444,6 +461,7 @@ const styles = StyleSheet.create({
   modalBtnSecondary: { marginRight: 10 },
   modalBtnFull: { marginRight: 0 },
   modalBtnText: { color: '#fff', fontWeight: '700' },
+  buttonDisabled: { opacity: 0.45 },
 
   rouletteWrapper: { alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   roulette: {

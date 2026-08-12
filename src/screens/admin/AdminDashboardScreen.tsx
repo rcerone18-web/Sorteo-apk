@@ -11,6 +11,7 @@ import { Header } from '../../components/admin/Header';
 import { KpiCard } from '../../components/admin/KpiCard';
 import { MenuCard } from '../../components/admin/MenuCard';
 import { ChartSection } from '../../components/admin/ChartSection';
+import { errorToAlertMessage } from '../../utils/errors';
 
 const cardItems = [
   { key: 'Participaciones', title: 'Facturas registradas', screen: 'AdminParticipaciones', icon: 'receipt-outline' as const },
@@ -19,6 +20,8 @@ const cardItems = [
   { key: 'Bonos', title: 'Bonos', screen: 'AdminBonos', icon: 'gift-outline' as const },
   { key: 'Redencion', title: 'Redención de bono', screen: 'AdminRedencion', icon: 'card-outline' as const },
   { key: 'Config', title: 'Configuración', screen: 'AdminConfig', icon: 'settings-outline' as const },
+  { key: 'Campaigns', title: 'Campañas', screen: 'AdminCampaigns', icon: 'rocket-outline' as const },
+  { key: 'CampaignGuide', title: 'Guía de operaciones', screen: 'AdminCampaignOperaciones', icon: 'book-outline' as const },
 ];
 
 function AdminDashboardContent() {
@@ -42,8 +45,8 @@ function AdminDashboardContent() {
         setMetricas(m);
       }
     } catch (e) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-        || (e instanceof Error ? e.message : 'Error al cargar métricas');
+      const raw = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      const msg = errorToAlertMessage(raw, e instanceof Error ? e.message : 'Error al cargar métricas');
       Alert.alert('Error', msg);
     } finally {
       setLoading(false);
@@ -71,7 +74,7 @@ function AdminDashboardContent() {
   const headerAnim = useRef(new Animated.Value(0)).current;
   const chartAnim = useRef(new Animated.Value(0)).current;
   const kpiAnims = useRef(Array.from({ length: 5 }).map(() => new Animated.Value(0))).current;
-  const menuAnims = useRef(Array.from({ length: 6 }).map(() => new Animated.Value(0))).current;
+  const menuAnims = useRef(Array.from({ length: cardItems.length }).map(() => new Animated.Value(0))).current;
 
   useEffect(() => {
     if (!metricas || hasAnimated) return;

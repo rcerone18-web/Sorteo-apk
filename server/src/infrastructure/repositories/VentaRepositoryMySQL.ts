@@ -26,21 +26,45 @@ export class VentaRepositoryMySQL implements IVentaRepository {
     const conn = pickConn(tx);
     const exec = conn ? conn.execute.bind(conn) : pool.execute.bind(pool);
     try {
-      await exec(
-        `INSERT INTO ventas (id, numero, fecha, cedula, nombre_cliente, valor, total_huevos, presentaciones_detalle, client_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          record.id,
-          record.numero,
-          record.fecha,
-          record.cedula,
-          record.nombreCliente,
-          record.valorTotal,
-          record.totalHuevos,
-          record.presentacionesDetalleJson,
-          record.clientId,
-        ],
-      );
+      try {
+        await exec(
+          `INSERT INTO ventas (id, numero, fecha, cedula, nombre_cliente, valor, total_huevos, presentaciones_detalle, client_id, valor_elegible, campaign_id, estado)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'emitida')`,
+          [
+            record.id,
+            record.numero,
+            record.fecha,
+            record.cedula,
+            record.nombreCliente,
+            record.valorTotal,
+            record.totalHuevos,
+            record.presentacionesDetalleJson,
+            record.clientId,
+            record.valorElegible ?? null,
+            record.campaignId ?? null,
+          ],
+        );
+      } catch (err: any) {
+        if (err?.code === 'ER_BAD_FIELD_ERROR') {
+          await exec(
+            `INSERT INTO ventas (id, numero, fecha, cedula, nombre_cliente, valor, total_huevos, presentaciones_detalle, client_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              record.id,
+              record.numero,
+              record.fecha,
+              record.cedula,
+              record.nombreCliente,
+              record.valorTotal,
+              record.totalHuevos,
+              record.presentacionesDetalleJson,
+              record.clientId,
+            ],
+          );
+          return;
+        }
+        throw err;
+      }
     } catch (err: any) {
       if (err?.code === 'ER_BAD_FIELD_ERROR' && String(err?.message ?? '').includes('client_id')) {
         // Backward compat: si no existe `client_id`, insertamos sin esa columna.

@@ -7,16 +7,29 @@ import type { IVentaRepository } from '../../../application/repositories/IVentaR
 import type { IBonoRepository } from '../../../application/repositories/IBonoRepository';
 import type { IConfigRepository } from '../../../application/repositories/IConfigRepository';
 import { ConsecutivoRepositoryMySQL } from '../../../infrastructure/repositories/ConsecutivoRepositoryMySQL';
+import { calcularValorElegible } from '../../campaign/valorElegible';
+import type { RolParticipacion } from '../../campaign/resolveCampaign';
+import { resolveCampaignForParticipation, loadLegacyConfigSorteo } from '../../campaign/resolveCampaign';
+
+export interface LineaVenta {
+  presentacion: string;
+  cantidad: number;
+  precioUnitario?: number;
+  subtotal?: number;
+}
 
 export interface CrearVentaInput {
   clientId?: string;
-  fechaFactura: string; // YYYY-MM-DD
+  fechaFactura: string;
   cedula: string;
   nombreCliente: string;
   valorTotal: number;
   totalHuevos?: number;
-  presentaciones: { presentacion: string; cantidad: number }[];
+  presentaciones: LineaVenta[];
   codigoBono?: string;
+  /** Usuario autenticado (vendedor); necesario para campaña y métricas */
+  usuarioVendedor: string;
+  rolVendedor?: RolParticipacion;
 }
 
 export class CrearVentaUseCase {
@@ -29,8 +42,6 @@ export class CrearVentaUseCase {
   ) {}
 
   async execute(input: CrearVentaInput): Promise<{ numero: string }> {
-    // Idempotencia: si la app no envía `clientId`, lo derivamos de los campos.
-    // Esto evita duplicar ventas al sincronizar.
     const clientId = input.clientId ?? deriveClientId(input);
 
     const existing = await this.ventaRepo.findByClientId(clientId);
@@ -40,13 +51,42 @@ export class CrearVentaUseCase {
       });
     }
 
+    let campaign: Awaited<ReturnType<typeof resolveCampaignForParticipation>> = null;
+    try {
+      campaign = await resolveCampaignForParticipation(
+        pool,
+        input.usuarioVendedor,
+        input.rolVendedor
+      );
+    } catch {
+      campaign = null;
+    }
+
+    let refsEleg: string[] = [];
+    let minSub = 0;
+    let campaignId: string | null = campaign?.id ?? null;
+    if (campaign) {
+      try {
+        refsEleg = JSON.parse(campaign.refsElegiblesJson || '[]');
+        if (!Array.isArray(refsEleg)) refsEleg = [];
+      } catch {
+        refsEleg = [];
+      }
+      minSub = campaign.minSubtotalElegible;
+    } else {
+      const legacy = await loadLegacyConfigSorteo(pool);
+      refsEleg = legacy.presentacionesParticipan || [];
+      minSub = 0;
+    }
+
+    const valorElegible = calcularValorElegible(input.presentaciones, refsEleg, input.valorTotal);
+
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
 
       const numero = await this.consecutivoRepo.nextFactura2024(conn);
 
-      // Validaciones críticas de bono (solo backend)
       let bonoId: string | null = null;
       if (input.codigoBono) {
         const bono = await this.bonoRepo.findByCodigoNormalized(input.codigoBono);
@@ -57,20 +97,29 @@ export class CrearVentaUseCase {
         if (bono.cedula.trim() !== cedulaNorm || bono.nombreCliente.trim().toUpperCase() !== nombreUpper) {
           throw new AppError(ERROR_CODES.BONO_NO_PERTENECE, 'Este bono no pertenece a este cliente', 403);
         }
-        if (bono.estado === 'redimido') throw new AppError(ERROR_CODES.BONO_INVALIDO, 'Bono ya fue redimido', 409);
+        const st = bono.estado;
+        if (st === 'anulado' || st === 'vencido' || st === 'redimido') {
+          throw new AppError(ERROR_CODES.BONO_INVALIDO, 'Bono no disponible para redimir', 409);
+        }
         if (bono.fechaVencimiento && bono.fechaVencimiento.getTime() < Date.now()) {
           throw new AppError(ERROR_CODES.BONO_INVALIDO, 'Bono vencido', 410);
         }
-        const compraMin = await this.configRepo.getCompraMinimaBono();
-        if (input.valorTotal < compraMin) {
+        if (bono.saldoRestante <= 0) {
+          throw new AppError(ERROR_CODES.BONO_INVALIDO, 'Bono sin saldo', 409);
+        }
+
+        if (valorElegible < bono.valorElegibleOrigen) {
           throw new AppError(
             ERROR_CODES.COMPRA_MINIMA_NO_CUMPLIDA,
-            'Compra mínima no alcanzada para redimir el bono',
+            'El valor elegible de esta compra debe ser al menos el de la factura que originó el bono',
             422,
-            { compraMinimaRequerida: compraMin },
+            { valorElegibleMinimo: bono.valorElegibleOrigen },
           );
         }
+
+        const montoRedimir = Math.min(bono.saldoRestante, valorElegible);
         bonoId = bono.id;
+        await this.bonoRepo.applyRedemption(bonoId, montoRedimir, numero, conn as unknown as PoolConnection);
       }
 
       await this.ventaRepo.create(
@@ -84,18 +133,41 @@ export class CrearVentaUseCase {
           valorTotal: input.valorTotal,
           totalHuevos: input.totalHuevos ?? null,
           presentacionesDetalleJson: JSON.stringify(input.presentaciones),
+          valorElegible,
+          campaignId,
         },
         conn as unknown as PoolConnection,
       );
 
+      // Todas las ventas sin redención de bono entran al pool del sorteo (facturas_mock).
+      // La elegibilidad estricta (mínimo elegible, referencias, mismo día) se valida al participar.
       if (!bonoId) {
-        await conn.execute('INSERT INTO facturas_mock (numero, fecha, valor) VALUES (?, ?, ?)', [
-          numero,
-          input.fechaFactura,
-          input.valorTotal,
-        ]);
-      } else {
-        await this.bonoRepo.markRedimido(bonoId, conn as unknown as PoolConnection);
+        try {
+          await conn.execute(
+            'INSERT INTO facturas_mock (numero, fecha, valor, valor_elegible) VALUES (?, ?, ?, ?)',
+            [numero, input.fechaFactura, input.valorTotal, valorElegible],
+          );
+        } catch {
+          await conn.execute('INSERT INTO facturas_mock (numero, fecha, valor) VALUES (?, ?, ?)', [
+            numero,
+            input.fechaFactura,
+            input.valorTotal,
+          ]);
+        }
+
+        if (valorElegible >= minSub) {
+          try {
+            const cidMetric = campaignId ?? 'c0000001-0000-0000-0000-000000000001';
+            await conn.execute(
+              `INSERT INTO campaign_metrics (campaign_id, usuario, ventas_elegibles_acum, bonos_emitidos_acum)
+               VALUES (?, ?, ?, 0)
+               ON DUPLICATE KEY UPDATE ventas_elegibles_acum = ventas_elegibles_acum + ?`,
+              [cidMetric, input.usuarioVendedor, valorElegible, valorElegible],
+            );
+          } catch {
+            /* tabla no migrada */
+          }
+        }
       }
 
       await conn.commit();
@@ -109,7 +181,7 @@ export class CrearVentaUseCase {
   }
 }
 
-function deriveClientId(input: Omit<CrearVentaInput, 'clientId'>): string {
+function deriveClientId(input: Omit<CrearVentaInput, 'clientId' | 'usuarioVendedor'>): string {
   const seed = JSON.stringify({
     fechaFactura: input.fechaFactura,
     cedula: input.cedula.trim(),
@@ -120,15 +192,10 @@ function deriveClientId(input: Omit<CrearVentaInput, 'clientId'>): string {
     codigoBono: input.codigoBono ?? null,
   });
 
-  // Creamos un UUID "con forma" a partir de un hash para cumplir el schema `.uuid()`.
-  const hash = createHash('sha256').update(seed).digest(); // Buffer
+  const hash = createHash('sha256').update(seed).digest();
   const bytes = hash.subarray(0, 16);
-
-  // Ajustar versión (4) y variante (10xxxxxx) para RFC4122.
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
   const hex = Buffer.from(bytes).toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-

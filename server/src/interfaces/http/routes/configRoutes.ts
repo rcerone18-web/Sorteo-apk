@@ -18,7 +18,8 @@ configRoutes.get('/sorteo', authMiddleware, async (_req, res, next) => {
     } = {};
 
     for (const r of rows) {
-      if (r.clave === 'presentaiones_para_participar') {
+      // Compat: legado tenía un typo ('presentaiones_...'). Aceptar ambas claves.
+      if (r.clave === 'presentaciones_para_participar' || r.clave === 'presentaiones_para_participar') {
         try {
           const parsed = JSON.parse(r.valor || '[]');
           config.presentacionesParticipan = Array.isArray(parsed) ? parsed : [];

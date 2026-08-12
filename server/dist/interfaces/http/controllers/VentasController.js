@@ -17,6 +17,8 @@ class VentasController {
                 totalHuevos: body.totalHuevos,
                 presentaciones: body.presentaciones,
                 codigoBono: body.codigoBono,
+                usuarioVendedor: req.user?.usuario ?? 'sistema',
+                rolVendedor: req.user?.rol,
             });
             return res.status(201).json({ data: out });
         }

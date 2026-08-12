@@ -24,6 +24,7 @@ import { useAppTheme } from '../theme/ThemeProvider';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { localCalendarYmd, toCalendarYmdFromApi } from '../utils/localDate';
 
 const INIT_ITEM: ItemFactura = { tipoPresentacion: '', cantidad: 0, precioUnitario: 0, subtotal: 0 };
 
@@ -46,7 +47,7 @@ export default function FacturacionScreen() {
   const { theme } = useAppTheme();
   const [loading, setLoading] = useState(false);
   const [loadingAutocomplete, setLoadingAutocomplete] = useState(false);
-  const [fechaFactura, setFechaFactura] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fechaFactura, setFechaFactura] = useState(() => localCalendarYmd());
   const [cedulaCliente, setCedulaCliente] = useState('');
   const [nombreCliente, setNombreCliente] = useState('');
   const [valorTotal, setValorTotal] = useState('');
@@ -116,7 +117,7 @@ export default function FacturacionScreen() {
         if (v) {
           setCedulaCliente(v.cedulaCliente);
           setNombreCliente(v.nombreCliente);
-          setFechaFactura(v.fechaFactura?.slice(0, 10) ?? fechaFactura);
+          setFechaFactura(toCalendarYmdFromApi(v.fechaFactura) || fechaFactura);
           setValorTotal(String(v.valorTotal ?? ''));
           setTotalHuevos(v.totalHuevos != null ? String(v.totalHuevos) : '');
           if (v.presentaciones?.length) {
@@ -128,7 +129,7 @@ export default function FacturacionScreen() {
         if (v) {
           setCedulaCliente(v.cedulaCliente);
           setNombreCliente(v.nombreCliente);
-          setFechaFactura(v.fechaFactura?.slice(0, 10) ?? fechaFactura);
+          setFechaFactura(toCalendarYmdFromApi(v.fechaFactura) || fechaFactura);
           setValorTotal(String(v.valorTotal ?? ''));
           setTotalHuevos(v.totalHuevos != null ? String(v.totalHuevos) : '');
           if (v.items?.length) {
@@ -196,7 +197,12 @@ export default function FacturacionScreen() {
     try {
       const online = await isOnline();
       if (online) {
-        const presentaciones = itemsValidos.map((i) => ({ presentacion: i.tipoPresentacion, cantidad: i.cantidad }));
+        const presentaciones = itemsValidos.map((i) => ({
+          presentacion: i.tipoPresentacion,
+          cantidad: i.cantidad,
+          precioUnitario: i.precioUnitario,
+          subtotal: i.subtotal,
+        }));
         const res = await api.crearVenta({
           fechaFactura,
           cedulaCliente: cedulaCliente.trim(),

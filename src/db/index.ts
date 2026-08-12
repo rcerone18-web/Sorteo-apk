@@ -4,6 +4,21 @@ import type { Factura, Participacion, ItemFactura } from '../types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
+async function migrateSqlite(d: SQLite.SQLiteDatabase): Promise<void> {
+  const alters = [
+    'ALTER TABLE participaciones ADD COLUMN idempotency_key TEXT',
+    'ALTER TABLE participaciones ADD COLUMN probabilidad_utilizada REAL',
+    'ALTER TABLE participaciones ADD COLUMN leyenda_factura_bono TEXT',
+  ];
+  for (const sql of alters) {
+    try {
+      await d.execAsync(sql);
+    } catch {
+      /* columna ya existe */
+    }
+  }
+}
+
 export async function initDb(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
   db = await SQLite.openDatabaseAsync(DB_NAME);
@@ -12,6 +27,7 @@ export async function initDb(): Promise<SQLite.SQLiteDatabase> {
   await db.execAsync(SQL.CREATE_MAPEO_FACTURAS);
   await db.execAsync(SQL.CREATE_CONTADOR_LOCAL);
   await db.execAsync(SQL.CREATE_CONFIG_CACHE);
+  await migrateSqlite(db);
   return db;
 }
 
@@ -175,6 +191,9 @@ export async function participacionesPendientes(): Promise<Participacion[]> {
     resultado: string | null;
     codigo_bono: string | null;
     compra_minima_bono: number | null;
+    idempotency_key: string | null;
+    probabilidad_utilizada: number | null;
+    leyenda_factura_bono: string | null;
     sincronizado: number;
     created_at: string;
   }>('SELECT * FROM participaciones WHERE sincronizado = 0 ORDER BY id');
@@ -189,6 +208,9 @@ export async function participacionesPendientes(): Promise<Participacion[]> {
     resultado: (r.resultado as 'gano' | 'no_gano') ?? undefined,
     codigoBono: r.codigo_bono ?? undefined,
     compraMinimaBono: r.compra_minima_bono ?? undefined,
+    idempotencyKey: r.idempotency_key ?? undefined,
+    probabilidadUtilizada: r.probabilidad_utilizada ?? undefined,
+    leyendaFacturaBono: r.leyenda_factura_bono ?? undefined,
     sincronizado: r.sincronizado === 1,
     createdAt: r.created_at,
   }));
@@ -197,8 +219,8 @@ export async function participacionesPendientes(): Promise<Participacion[]> {
 export async function guardarParticipacionLocal(p: Omit<Participacion, 'id'>): Promise<number> {
   const d = getDb();
   const res = await d.runAsync(
-    `INSERT INTO participaciones (numero_factura, fecha_factura, cedula_cliente, nombre_cliente, valor_total, consentimiento_datos, resultado, codigo_bono, compra_minima_bono, sincronizado)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    `INSERT INTO participaciones (numero_factura, fecha_factura, cedula_cliente, nombre_cliente, valor_total, consentimiento_datos, resultado, codigo_bono, compra_minima_bono, idempotency_key, probabilidad_utilizada, leyenda_factura_bono, sincronizado)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
     [
       p.numeroFactura,
       p.fechaFactura,
@@ -209,6 +231,9 @@ export async function guardarParticipacionLocal(p: Omit<Participacion, 'id'>): P
       p.resultado ?? null,
       p.codigoBono ?? null,
       p.compraMinimaBono ?? null,
+      p.idempotencyKey ?? null,
+      p.probabilidadUtilizada ?? null,
+      p.leyendaFacturaBono ?? null,
     ]
   );
   return res.lastInsertRowId;

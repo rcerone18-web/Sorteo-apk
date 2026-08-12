@@ -23,7 +23,7 @@ export interface ItemFactura {
 }
 
 export interface Factura {
-  id?: string;
+  id?: number;
   numeroFactura: string;
   fechaFactura: string;
   cedulaCliente: string;
@@ -39,7 +39,7 @@ export interface Factura {
 }
 
 export interface Participacion {
-  id?: string;
+  id?: number;
   numeroFactura: string;
   fechaFactura: string;
   cedulaCliente: string;
@@ -49,6 +49,10 @@ export interface Participacion {
   resultado?: 'gano' | 'no_gano';
   codigoBono?: string;
   compraMinimaBono?: number;
+  /** Misma clave en sync → servidor devuelve resultado idempotente (sin doble sorteo). */
+  idempotencyKey?: string;
+  probabilidadUtilizada?: number;
+  leyendaFacturaBono?: string;
   sincronizado?: boolean;
   createdAt?: string;
 }
@@ -66,9 +70,80 @@ export interface RespuestaSorteo {
   codigoBono?: string;
   compraMinimaBono?: number;
   mensaje: string;
+  probabilidadUtilizada?: number;
+  leyendaFacturaBono?: string;
+  valorElegible?: number;
+  campaignId?: string;
 }
 
 // --- Admin módulo ---
+
+export interface AdminUserItem {
+  id: string;
+  usuario: string;
+  rol: Rol;
+  nombre?: string;
+}
+
+export interface CampaignItem {
+  id: string;
+  nombre: string;
+  fechaInicio: string;
+  fechaFin: string;
+  minSubtotalElegible: number;
+  pctBono: number;
+  pctTopeCosto: number;
+  bonoVigenciaDias: number;
+  probabilidadBase: number;
+  estado: 'activa' | 'inactiva';
+  refsElegiblesJson: string;
+  leyendaFacturaBono: string;
+  presupuestoTotal?: number | null;
+  presupuestoModo?: 'ratio' | 'absoluto' | 'mixto';
+  /** Flags del brief promocional (opcional para BDs sin migrar 004). */
+  bonoUnSoloUso?: boolean;
+  bonoNoAcumulable?: boolean;
+  redencionSoloFacturaFutura?: boolean;
+  redencionMinIgualOrigen?: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+/** Payload de creación/edición de campaña (admin). */
+export interface CampaignWriteBody {
+  nombre: string;
+  fechaInicio: string;
+  fechaFin: string;
+  minSubtotalElegible: number;
+  pctBono: number;
+  pctTopeCosto: number;
+  bonoVigenciaDias: number;
+  probabilidadBase: number;
+  estado: 'activa' | 'inactiva';
+  refsElegibles: string[];
+  leyendaFacturaBono: string;
+  bonoUnSoloUso: boolean;
+  bonoNoAcumulable: boolean;
+  redencionSoloFacturaFutura: boolean;
+  redencionMinIgualOrigen: boolean;
+  presupuestoTotal?: number | null;
+  presupuestoModo?: 'ratio' | 'absoluto' | 'mixto';
+}
+
+export interface ProbabilityAuditItem {
+  id: string;
+  participacionId?: string;
+  facturaNumero: string;
+  usuario: string;
+  valorElegible: number;
+  bonoValorEstimado: number;
+  probBase: number;
+  probFinal: number;
+  randomU?: number;
+  gano: number;
+  motivoBloqueo?: string | null;
+  createdAt: string;
+}
 
 export interface AdminMetricas {
   totalParticipaciones: number;
@@ -88,6 +163,8 @@ export interface ParticipacionItem {
   consentimiento: number;
   fechaRegistro: string;
   usuarioRegistro: string;
+  valorElegible?: number;
+  probabilidadUtilizada?: number;
 }
 
 export interface SorteoItem {
@@ -107,7 +184,7 @@ export interface BonoItem {
   valor: number;
   fechaEmision: string;
   fechaVencimiento: string;
-  estado: 'disponible' | 'redimido' | 'vencido';
+  estado: 'disponible' | 'vigente' | 'caucado' | 'redimido' | 'vencido' | 'anulado';
   estadoMostrar?: string;
   participacionId?: string;
 }

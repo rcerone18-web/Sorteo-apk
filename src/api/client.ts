@@ -10,6 +10,10 @@ import type {
   ParticipacionItem,
   SorteoItem,
   BonoItem,
+  CampaignItem,
+  CampaignWriteBody,
+  ProbabilityAuditItem,
+  AdminUserItem,
 } from '../types';
 
 let token: string | null = null;
@@ -81,7 +85,7 @@ export interface CrearVentaBody {
   nombreCliente: string;
   valorTotal: number;
   totalHuevos?: number;
-  presentaciones: PresentacionDetalle[];
+  presentaciones: (PresentacionDetalle & { precioUnitario?: number; subtotal?: number })[];
   codigoBono?: string;
 }
 export interface CrearVentaResponse {
@@ -95,7 +99,12 @@ export async function crearVenta(body: CrearVentaBody): Promise<CrearVentaRespon
     valorTotal: body.valorTotal,
     fechaFactura: body.fechaFactura,
     totalHuevos: body.totalHuevos,
-    presentaciones: body.presentaciones,
+    presentaciones: body.presentaciones.map((p) => ({
+      presentacion: p.presentacion,
+      cantidad: p.cantidad,
+      precioUnitario: p.precioUnitario,
+      subtotal: p.subtotal,
+    })),
     codigoBono: body.codigoBono,
   };
   // El backend responde con `{ data: { numero } }`.
@@ -137,7 +146,7 @@ export async function getVentaPorCedula(cedula: string): Promise<VentaPorNumero 
 }
 
 /** Validar factura para participación (facturas_mock) */
-export async function validarFactura(numero: string): Promise<VentaPorNumero | null> {
+export async function validarFactura(numero: string): Promise<VentaPorNumero> {
   try {
     const { data } = await client().get<{ numero: string; fecha: string; valor: number; cedula: string; nombreCliente: string }>(
       `/participaciones/validar-factura/${encodeURIComponent(numero)}`
@@ -150,7 +159,7 @@ export async function validarFactura(numero: string): Promise<VentaPorNumero | n
       valorTotal: data.valor,
     };
   } catch (e: unknown) {
-    if (axios.isAxiosError(e) && (e.response?.status === 404 || e.response?.status === 400)) return null;
+    // No convertir 400/404 en null: el mensaje del servidor (ej. ya participó) debe mostrarse en pantalla.
     throw e;
   }
 }
@@ -162,6 +171,8 @@ export interface CrearParticipacionBody {
   nombreCliente: string;
   valorTotal: number;
   consentimientoDatos: boolean;
+  /** Idempotencia: reintentos de sync devuelven el mismo resultado sin nuevo sorteo. */
+  idempotencyKey?: string;
 }
 
 export async function crearParticipacion(body: CrearParticipacionBody): Promise<RespuestaSorteo> {
@@ -172,6 +183,7 @@ export async function crearParticipacion(body: CrearParticipacionBody): Promise<
     nombreCliente: body.nombreCliente,
     valorTotal: body.valorTotal,
     consentimiento: body.consentimientoDatos,
+    idempotencyKey: body.idempotencyKey,
   };
   const { data } = await client().post<RespuestaSorteo>('/participaciones', payload);
   return data;
@@ -250,16 +262,6 @@ export async function redimirBono(id: string): Promise<{ ok: boolean; mensaje: s
   return data;
 }
 
-export async function getConfigProbabilidad(): Promise<{ probabilidad: number; porcentaje: number }> {
-  const { data } = await client().get('/admin/config/probabilidad');
-  return data;
-}
-
-export async function putConfigProbabilidad(porcentaje: number): Promise<{ probabilidad: number; porcentaje: number }> {
-  const { data } = await client().put('/admin/config/probabilidad', { porcentaje });
-  return data;
-}
-
 export async function getConfigCompraMinima(): Promise<{ compraMinima: number }> {
   const { data } = await client().get('/admin/config/compra-minima');
   return data;
@@ -267,6 +269,16 @@ export async function getConfigCompraMinima(): Promise<{ compraMinima: number }>
 
 export async function putConfigCompraMinima(compraMinima: number): Promise<{ compraMinima: number }> {
   const { data } = await client().put('/admin/config/compra-minima', { compraMinima });
+  return data;
+}
+
+export async function getConfigMinSubtotalRefsParticipar(): Promise<{ minSubtotal: number }> {
+  const { data } = await client().get('/admin/config/min-subtotal-refs-participar');
+  return data;
+}
+
+export async function putConfigMinSubtotalRefsParticipar(minSubtotal: number): Promise<{ minSubtotal: number }> {
+  const { data } = await client().put('/admin/config/min-subtotal-refs-participar', { minSubtotal });
   return data;
 }
 
@@ -287,5 +299,103 @@ export async function getFacturas(): Promise<Factura[]> {
 
 export async function actualizarConfigSorteo(config: Partial<ConfigSorteo>): Promise<ConfigSorteo> {
   const { data } = await client().put<ConfigSorteo>('/admin/config/sorteo', config);
+  return data;
+}
+
+// --- Campañas (admin) ---
+
+export async function getCampaigns(): Promise<CampaignItem[]> {
+  const { data } = await client().get<CampaignItem[]>('/admin/campaigns');
+  return data;
+}
+
+export async function getCampaign(id: string): Promise<CampaignItem> {
+  const { data } = await client().get<CampaignItem>(`/admin/campaigns/${encodeURIComponent(id)}`);
+  return data;
+}
+
+export async function createCampaign(body: CampaignWriteBody): Promise<CampaignItem> {
+  const { data } = await client().post<CampaignItem>('/admin/campaigns', body);
+  return data;
+}
+
+export async function updateCampaign(
+  id: string,
+  body: Partial<CampaignWriteBody>
+): Promise<CampaignItem> {
+  const { data } = await client().put<CampaignItem>(
+    `/admin/campaigns/${encodeURIComponent(id)}`,
+    body
+  );
+  return data;
+}
+
+export async function setCampaignEstado(
+  id: string,
+  estado: 'activa' | 'inactiva'
+): Promise<CampaignItem> {
+  const { data } = await client().patch<CampaignItem>(
+    `/admin/campaigns/${encodeURIComponent(id)}/estado`,
+    { estado }
+  );
+  return data;
+}
+
+export async function deleteCampaign(id: string): Promise<{ ok: boolean }> {
+  const { data } = await client().delete<{ ok: boolean }>(
+    `/admin/campaigns/${encodeURIComponent(id)}`
+  );
+  return data;
+}
+
+export async function getAdminUsers(): Promise<AdminUserItem[]> {
+  const { data } = await client().get<AdminUserItem[]>('/admin/users');
+  return data;
+}
+
+export async function getCampaignUsers(campaignId: string): Promise<{ usuarios: string[] }> {
+  const { data } = await client().get<{ usuarios: string[] }>(
+    `/admin/campaigns/${encodeURIComponent(campaignId)}/users`
+  );
+  return data;
+}
+
+export async function putCampaignUsers(
+  campaignId: string,
+  usuarios: string[]
+): Promise<{ ok: boolean; usuarios: string[] }> {
+  const { data } = await client().put<{ ok: boolean; usuarios: string[] }>(
+    `/admin/campaigns/${encodeURIComponent(campaignId)}/users`,
+    { usuarios }
+  );
+  return data;
+}
+
+export async function getCampaignPresupuesto(campaignId: string): Promise<{
+  pctTope: number;
+  presupuestoTotal: number | null;
+  presupuestoModo: string;
+  global: {
+    V: number;
+    B: number;
+    reserva: number;
+    participaciones: number;
+    ganadores: number;
+    headroomRatio: number;
+    headroomAbsoluto: number | null;
+  } | null;
+  items: { usuario: string; V: number; B: number; headroom: number }[];
+}> {
+  const { data } = await client().get(`/admin/campaigns/${encodeURIComponent(campaignId)}/presupuesto`);
+  return data;
+}
+
+export async function getCampaignAuditLog(
+  campaignId: string,
+  limit = 50
+): Promise<ProbabilityAuditItem[]> {
+  const { data } = await client().get<ProbabilityAuditItem[]>(
+    `/admin/campaigns/${encodeURIComponent(campaignId)}/audit-log?limit=${limit}`
+  );
   return data;
 }

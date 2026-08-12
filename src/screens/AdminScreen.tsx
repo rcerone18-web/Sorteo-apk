@@ -2,17 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import * as api from '../api/client';
+import type { AdminMetricas } from '../types';
 import { isOnline } from '../sync/syncService';
 
 export default function AdminScreen() {
   const { user } = useAuth();
   const [online, setOnline] = useState(false);
-  const [metricas, setMetricas] = useState<{
-    totalVentas: number;
-    totalParticipaciones: number;
-    totalGanadores: number;
-    totalBonosRedimidos: number;
-  } | null>(null);
+  const [metricas, setMetricas] = useState<AdminMetricas | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -56,14 +52,15 @@ export default function AdminScreen() {
       </TouchableOpacity>
       {metricas && (
         <View style={styles.metricasCard}>
-          <Text style={styles.metrica}>Total ventas: {metricas.totalVentas}</Text>
-          <Text style={styles.metrica}>Total participaciones: {metricas.totalParticipaciones}</Text>
-          <Text style={styles.metrica}>Total ganadores: {metricas.totalGanadores}</Text>
-          <Text style={styles.metrica}>Bonos redimidos: {metricas.totalBonosRedimidos}</Text>
+          <Text style={styles.metrica}>Participaciones: {metricas.totalParticipaciones}</Text>
+          <Text style={styles.metrica}>Ganadores: {metricas.totalGanadores}</Text>
+          <Text style={styles.metrica}>Tasa observada: {metricas.tasaObservada}%</Text>
+          <Text style={styles.metrica}>Valor emitido (bonos): {metricas.valorEmitido}</Text>
+          <Text style={styles.metrica}>Valor redimido: {metricas.valorRedimido}</Text>
         </View>
       )}
       <Text style={styles.hint}>
-        Listados (facturas, participaciones, sorteos, ganadores, bonos) y configuración (probabilidad, compra mínima, presentaciones) se gestionan desde el mismo API del servidor. En esta app se muestran solo métricas básicas; el resto puede hacerse desde el backend o una web admin.
+        Listados (facturas, participaciones, sorteos, ganadores, bonos) y parte de la configuración (compra mínima, presentaciones) se gestionan desde el API del servidor. La probabilidad del sorteo online va ligada a la campaña en base de datos. En esta app se muestran métricas básicas; el resto puede hacerse desde el backend o una web admin.
       </Text>
     </ScrollView>
   );

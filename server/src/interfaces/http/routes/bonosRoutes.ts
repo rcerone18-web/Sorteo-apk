@@ -23,10 +23,10 @@ bonosRoutes.get('/', authMiddleware, async (req, res, next) => {
                FROM bonos WHERE 1=1`;
     const params: any[] = [];
 
-    if (estadoQ === 'disponible') {
-      sql += ` AND estado = 'disponible' AND (fecha_vencimiento IS NULL OR fecha_vencimiento >= NOW())`;
+    if (estadoQ === 'disponible' || estadoQ === 'vigente') {
+      sql += ` AND estado IN ('disponible','vigente','caucado') AND (fecha_vencimiento IS NULL OR fecha_vencimiento >= NOW())`;
     } else if (estadoQ === 'vencido') {
-      sql += ` AND (estado = 'vencido' OR (estado = 'disponible' AND fecha_vencimiento < NOW()))`;
+      sql += ` AND (estado = 'vencido' OR (estado IN ('disponible','vigente') AND fecha_vencimiento < NOW()))`;
     } else if (estadoQ) {
       params.push(estadoQ);
       sql += ` AND estado = ?`;
@@ -55,7 +55,10 @@ bonosRoutes.get('/', authMiddleware, async (req, res, next) => {
     const now = new Date().toISOString();
     const out = (rows as any[]).map((r) => ({
       ...r,
-      estadoMostrar: r.estado === 'disponible' && r.fechaVencimiento && r.fechaVencimiento < now ? 'vencido' : r.estado,
+      estadoMostrar:
+        (r.estado === 'disponible' || r.estado === 'vigente') && r.fechaVencimiento && r.fechaVencimiento < now
+          ? 'vencido'
+          : r.estado,
     }));
     return res.json(out);
   } catch (err) {
@@ -76,9 +79,11 @@ bonosRoutes.patch('/:id/redimir', authMiddleware, async (req, res, next) => {
     const bono = rows?.[0];
     if (!bono) return res.status(404).json({ error: 'Bono no encontrado' });
     if (bono.estado === 'redimido') return res.status(409).json({ error: 'Código de un solo uso: ya fue redimido' });
-    if (bono.estado !== 'disponible') return res.status(400).json({ error: 'El bono no está disponible para redimir' });
+    if (!['disponible', 'vigente', 'caucado'].includes(bono.estado)) {
+      return res.status(400).json({ error: 'El bono no está disponible para redimir' });
+    }
 
-    await pool.execute("UPDATE bonos SET estado = 'redimido' WHERE id = ?", [id]);
+    await pool.execute("UPDATE bonos SET estado = 'redimido', saldo_restante = 0 WHERE id = ?", [id]);
     return res.json({ ok: true, mensaje: 'Bono redimido correctamente' });
   } catch (err) {
     return next(err);

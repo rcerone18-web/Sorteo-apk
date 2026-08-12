@@ -21,8 +21,16 @@ function irARegistrarVenta(navigation: ReturnType<typeof useNavigation>) {
 export default function ResultadoSorteoScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const params = (route.params ?? {}) as { gano?: boolean; codigoBono?: string; compraMinimaBono?: number; mensaje?: string; offline?: boolean };
-  const { gano, codigoBono, compraMinimaBono, mensaje, offline } = params;
+  const params = (route.params ?? {}) as {
+    gano?: boolean;
+    codigoBono?: string;
+    compraMinimaBono?: number;
+    mensaje?: string;
+    offline?: boolean;
+    leyendaFacturaBono?: string;
+    probabilidadUtilizada?: number;
+  };
+  const { gano, codigoBono, compraMinimaBono, mensaje, offline, leyendaFacturaBono, probabilidadUtilizada } = params;
   const { theme } = useAppTheme();
   const codigoMostrar = codigoBono || extraerCodigoDeMensaje(mensaje);
 
@@ -98,6 +106,11 @@ export default function ResultadoSorteoScreen() {
                   try {
                     const compraMin = compraMinimaBono != null ? compraMinimaBono.toLocaleString('es-CO') : '—';
                     const fecha = new Date().toLocaleDateString('es-CO');
+                    const leyenda = leyendaFacturaBono || 'ESTA FACTURA CONTIENE UN BONO';
+                    const probTxt =
+                      probabilidadUtilizada != null && !Number.isNaN(probabilidadUtilizada)
+                        ? `Probabilidad aplicada: ${(probabilidadUtilizada * 100).toFixed(2)}%`
+                        : '';
                     const html = `<!doctype html>
 <html>
   <head>
@@ -107,6 +120,7 @@ export default function ResultadoSorteoScreen() {
       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial; padding: 24px; }
       .title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
       .subtitle { color: #475569; margin-bottom: 16px; }
+      .leyenda { font-size: 16px; font-weight: 800; letter-spacing: 0.02em; text-align: center; margin: 12px 0; padding: 12px; border: 2px solid #059669; border-radius: 8px; color: #065f46; }
       .box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
       .label { color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; }
       .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
@@ -117,6 +131,7 @@ export default function ResultadoSorteoScreen() {
   <body>
     <div class="title">Sorteo Promocional</div>
     <div class="subtitle">Tiquete de bono</div>
+    <div class="leyenda">${leyenda}</div>
     <div class="box">
       <div class="label">Fecha</div>
       <div class="value">${fecha}</div>
@@ -125,8 +140,9 @@ export default function ResultadoSorteoScreen() {
       <div class="value">${codigoMostrar}</div>
 
       <div class="min">Compra mínima para redimir: $${compraMin}</div>
+      ${probTxt ? `<div class="min">${probTxt}</div>` : ''}
     </div>
-    <div class="footer">Guarda este código para la próxima compra. Sujeto a términos del sorteo.</div>
+    <div class="footer">Incluir la misma leyenda en la factura impresa cuando corresponda. Sujeto a términos del sorteo.</div>
   </body>
 </html>`;
 

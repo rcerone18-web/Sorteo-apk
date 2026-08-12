@@ -8,6 +8,8 @@ export interface CrearVentaRecord {
   valorTotal: number;
   totalHuevos: number | null;
   presentacionesDetalleJson: string;
+  valorElegible?: number | null;
+  campaignId?: string | null;
 }
 
 export interface IVentaRepository {
